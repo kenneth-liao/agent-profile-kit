@@ -260,7 +260,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   file.
   Probe: compare the isolated home and working directory before and after every
   command that detects installed Hosts; any new or changed file fails. bash
-- [ ] **ISC-48:** When apkit connects a Workspace that has errors, it shows the
+- [x] **ISC-48:** When apkit connects a Workspace that has errors, it shows the
   complete validation report.
   Probe: connect folders with several violations; output missing any violation
   that `check` reports fails. bash
@@ -707,6 +707,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-39: `test/workspace.test.ts` "any .md name is a Context Module, and its ID is its path without .md"
 - ISC-40.1: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
 - ISC-40.2: 2026-11-05 manual run @2dd146d: `check --workspace` in a fresh home left the home empty
+- ISC-48: `test/cli.test.ts` "init and workspace select Workspaces with errors and show the complete check report (ISC-48)"
 - ISC-49: 2026-11-05 manual run @2dd146d: `--help` names `apkit contract`; its output is byte-identical to `docs/guides/workspace-contract.md`
 - ISC-52: `test/cli.test.ts` "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install" (all six Hosts)
 - ISC-56: `test/cli.test.ts` "a symlink that leads outside the Project needs a decision before any write there"

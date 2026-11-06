@@ -420,6 +420,54 @@ describe("apkit CLI", () => {
     expect(cli(home, one, "install", "writing", "--agents", "claude", "--yes").code).toBe(0);
   });
 
+  test("init and workspace select Workspaces with errors and show the complete check report (ISC-48)", async () => {
+    for (const missing of ["gone", "another-missing"]) {
+      const ws = await makeWorkspace();
+      await writeTree(ws, {
+        "profiles/engineering.yaml": `context: [${missing}]\nskills: [${missing}]\n`,
+        "profiles/broken.yaml": "skills: [\n",
+        "skills/README.md": "This file is skipped.\n",
+      });
+      const check = cli(await tempDir("check-home"), ws, "check", "--workspace", ws, "--json");
+      expect(check.code).toBe(1);
+      const report = JSON.parse(check.out);
+      expect(report.violations.length).toBeGreaterThanOrEqual(3);
+      expect(report.violations).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "missing-context-reference" }),
+        expect.objectContaining({ code: "missing-skill-reference" }),
+      ]));
+      expect(report.warnings.length).toBeGreaterThan(0);
+
+      let selectionOutput: string | undefined;
+      for (const command of ["workspace", "init"]) {
+        const home = await tempDir(`${command}-home`);
+        const select = cli(home, home, command, ws);
+        expect(select.code).toBe(0);
+        expect(select.err).toBe("");
+        for (const finding of [...report.violations, ...report.warnings]) expect(select.out).toContain(finding.message);
+        expect(select.out).toContain("Selected the Workspace at");
+        expect(select.out).toContain("It has problems:");
+        expect(select.out).toContain(`Installs and updates wait until \`${COMMAND} check\` reports no problems.`);
+        expect(select.out).toContain(`${COMMAND} contract`);
+        if (selectionOutput !== undefined) expect(select.out).toBe(selectionOutput);
+        selectionOutput = select.out;
+
+        const selectedCheck = cli(home, home, "check", "--json");
+        expect(selectedCheck.code).toBe(1);
+        expect(JSON.parse(selectedCheck.out)).toEqual(report);
+        const jsonSelect = cli(home, home, command, ws, "--json");
+        expect(jsonSelect.code).toBe(0);
+        expect(JSON.parse(jsonSelect.out)).toMatchObject({
+          workspace: ws,
+          valid: false,
+          violations: report.violations,
+          warnings: report.warnings,
+          contract: `${COMMAND} contract`,
+        });
+      }
+    }
+  });
+
   test("selecting a Workspace that lacks an installed Profile names each affected folder", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();

@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Fixed `apkit init <path>` selecting a Workspace with errors without reporting them; it now shows the complete validation report, like `workspace <path>`, while keeping the Workspace selected (#781)
+
 - Fixed `apkit init` without a path, `apkit workspace` without a path, and `--help` with a command that writes leaving an empty `~/.agents/apkit/` folder in a fresh home; none of them now writes anything there (#774)
 - Fixed `apkit --help` starting the descriptions of the long usage lines five columns right of the others and leaving `--agents` and `--all` out of `Options:`; every description now starts in one column and both options are listed, and the npm package description now says what apkit does instead of "Compose portable agent material into host-native profiles."
 
