@@ -28,6 +28,12 @@ export interface Manifest {
   readonly scope?: "user";
   /** User-level instruction files that hold the global Context section, by absolute path. */
   readonly sections?: NoteRecords;
+  /**
+   * POSIX paths of the Project folders this install created, sorted; project installs only.
+   * Removal deletes only these, when empty. Absent in a manifest written before apkit kept
+   * the record: removal then deletes every folder it leaves empty, up to the install folder.
+   */
+  readonly folders?: readonly string[];
 }
 
 export type IssueKind =
@@ -72,6 +78,12 @@ export interface Plan {
   readonly manifestBefore: string | null;
   /** Agent folders outside the target: pruning never goes above or removes one. */
   readonly pruneLimits: readonly string[];
+  /**
+   * Absolute folders `execute` deletes when they end up empty, deepest first: the previous
+   * manifest's record. Null prunes every folder a deletion leaves empty (a user-level install,
+   * or a manifest without the record).
+   */
+  readonly prune: readonly string[] | null;
 }
 
 export interface Decisions {
@@ -191,6 +203,7 @@ function isManifest(data: unknown, scope: "user" | undefined): data is Manifest 
   if (typeof data.createdAgentsMd !== "boolean" || typeof data.claudeImport !== "boolean") return false;
   if (data.context !== undefined && !(Array.isArray(data.context) && data.context.every((id) => typeof id === "string"))) return false;
   if (data.scope !== scope) return false;
+  if (data.folders !== undefined && !(scope === undefined && Array.isArray(data.folders) && data.folders.every((path) => typeof path === "string" && isInsidePath(path)))) return false;
   if (data.sections === undefined) return true;
   // Only the global manifest, in the apkit home, names user-level files, by absolute path.
   return scope === "user" && isNoteRecords(data.sections);
@@ -311,6 +324,22 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     ops.push({ type: "text", path: "CLAUDE.md", absolute: claudePath, text: remaining });
   }
 
+  // The Project folders this install created: what it created before, and what its writes create now.
+  // A folder that was there first is the user's, and stays out. User-level installs keep no record.
+  const project = (desired?.scope ?? previous?.scope) === undefined;
+  const recording = project && (previous === null || previous.folders !== undefined);
+  const manifestPath = options.manifestPath ?? abs(target, MANIFEST_PATH);
+  let folders: string[] | undefined;
+  if (recording && desired !== null) {
+    const created = new Set(previous?.folders ?? []);
+    for (const path of [...ops.flatMap((op) => (op.type === "write" ? [abs(target, op.path)] : [])), manifestPath]) {
+      for (const dir of await missingFolders(path)) if (isInside(target, dir) && dir !== target) created.add(relative(target, dir).split(sep).join("/"));
+    }
+    // A recorded folder that no longer holds a file of this install leaves the record: a deletion prunes it.
+    const holders = new Set([...Object.keys(files), MANIFEST_PATH].flatMap((path) => path.split("/").slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join("/"))));
+    folders = [...created].filter((dir) => holders.has(dir)).sort();
+  }
+
   const manifest: Manifest | null =
     desired === null
       ? null
@@ -324,8 +353,8 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
           claudeImport,
           ...(desired.contextIds.length === 0 ? {} : { context: desired.contextIds }),
           ...(desired.scope === undefined ? {} : { scope: desired.scope }),
+          ...(folders === undefined ? {} : { folders }),
         };
-  const manifestPath = options.manifestPath ?? abs(target, MANIFEST_PATH);
   const manifestBefore = await readText(manifestPath);
 
   // A symlink can lead a write or deletion out of the target: the user decides.
@@ -357,7 +386,8 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     instructions.push({ path, action, tracked: await isTracked(target, path) });
   }
 
-  return { target, manifestPath, ops, issues, instructions, manifest, manifestBefore, pruneLimits: options.pruneLimits ?? [] };
+  const prune = recording ? (previous?.folders ?? []).map((dir) => abs(target, dir)) : null;
+  return { target, manifestPath, ops, issues, instructions, manifest, manifestBefore, pruneLimits: options.pruneLimits ?? [], prune };
 }
 
 function manifestText(manifest: Manifest): string {
@@ -388,17 +418,20 @@ export async function execute(planned: Plan): Promise<void> {
     } else {
       const path = abs(target, op.path);
       await unlink(path).catch(() => undefined);
-      await pruneEmpty(pruneBound(target, path, planned.pruneLimits), dirname(path));
+      if (planned.prune === null) await pruneEmpty(pruneBound(target, path, planned.pruneLimits), dirname(path));
     }
   }
   const { manifestPath } = planned;
-  if (!changesManifest(planned)) return;
-  if (planned.manifest === null) {
-    await unlink(manifestPath).catch(() => undefined);
-    await pruneEmpty(target, dirname(manifestPath));
-  } else {
-    await atomicWrite(manifestPath, new TextEncoder().encode(manifestText(planned.manifest)));
+  if (changesManifest(planned)) {
+    if (planned.manifest === null) {
+      await unlink(manifestPath).catch(() => undefined);
+      if (planned.prune === null) await pruneEmpty(target, dirname(manifestPath));
+    } else {
+      await atomicWrite(manifestPath, new TextEncoder().encode(manifestText(planned.manifest)));
+    }
   }
+  // Only the folders this install created, deepest first; never a link.
+  if (planned.prune !== null) await removeEmptyFolders(planned.prune);
 }
 
 /** Temp file + rename, retried briefly: Windows refuses renames over files another process holds open. */
@@ -462,6 +495,29 @@ export function isNoteRecords(value: unknown): value is NoteRecords {
             record.createdDirs.every((dir) => typeof dir === "string" && isAbsolute(dir) && dir !== path && isInside(dir, path)))),
     )
   );
+}
+
+/**
+ * The folders under `target` that hold files of `owned` (POSIX path → hash) and nothing else but
+ * folders, the manifest, and Finder's `.DS_Store`: the folders that removing those files would
+ * leave empty. Migration records them as the folders the install created.
+ */
+export async function ownedFolders(target: string, owned: Readonly<Record<string, string>>): Promise<string[]> {
+  const candidates = new Set(Object.keys(owned).flatMap((path) => path.split("/").slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join("/"))));
+  const found: string[] = [];
+  for (const dir of candidates) {
+    const root = abs(target, dir);
+    const info = await lstat(root).catch(() => null);
+    if (info === null || !info.isDirectory()) continue;
+    const entries = await readdir(root, { recursive: true, withFileTypes: true });
+    const onlyOwned = entries.every((entry) => {
+      if (entry.isDirectory()) return true;
+      const path = `${dir}/${relative(root, join(entry.parentPath, entry.name)).split(sep).join("/")}`;
+      return entry.isFile() && (path in owned || path === MANIFEST_PATH || entry.name === FINDER_FILE);
+    });
+    if (onlyOwned) found.push(dir);
+  }
+  return found.sort();
 }
 
 /** The folders a write to `path` would create, deepest first. */

@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Fixed `remove`, and an `update` that drops an agent, deleting empty folders the user had before the install, such as an empty `.claude/` or `.agents/`; the Installation Manifest now records the Project folders the install created, and removal deletes only those, while an install recorded by an earlier apkit prunes as before (#779)
 - Fixed Workspace validation reports omitting offending paths for duplicate Skills, duplicate Profiles, and missing references, and omitting concrete corrections for duplicate Skills, invalid Profile YAML, repeated selections, and missing references (#782)
 - Fixed `apkit guide` omitting `help` and `--help`, and clarified `--workspace` and text output with `--json`; coverage now compares against the parser inventory (#786)
 - Fixed `apkit init <path>` selecting a Workspace with errors without reporting them; it now shows the complete validation report, like `workspace <path>`, while keeping the Workspace selected (#781)

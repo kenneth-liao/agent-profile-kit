@@ -1771,6 +1771,209 @@ describe("concurrent runs", () => {
   }, SLOW);
 });
 
+describe("several agents in linked worktrees", () => {
+  const SLOW = 60_000;
+  const ALL = Object.keys(AGENTS) as (keyof typeof AGENTS)[];
+
+  function git(cwd: string, ...args: string[]): string {
+    const result = spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, encoding: "utf8" });
+    if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
+    return result.stdout;
+  }
+
+  /** A main checkout with `files` committed, a home with the Workspace selected, and a way to add linked worktrees. */
+  async function repository(files: Record<string, string>) {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    await writeTree(repo, files);
+    git(repo, "init", "-q");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "init");
+    expect(cli(home, repo, "workspace", ws).code).toBe(0);
+    const trees = await tempDir("wt");
+    let count = 0;
+    const worktree = async () => {
+      const tree = join(trees, `tree${count++}`);
+      git(repo, "worktree", "add", "-q", "--detach", tree);
+      return tree;
+    };
+    return { home, repo, worktree };
+  }
+
+  /** Every file (with its text) and every empty folder under `folder`, without Git's own `.git` entry. */
+  async function tree(folder: string): Promise<Record<string, string>> {
+    const found: Record<string, string> = {};
+    for (const entry of await readdir(folder, { recursive: true, withFileTypes: true })) {
+      const full = join(entry.parentPath, entry.name);
+      const path = relative(folder, full).split(sep).join("/");
+      if (path === ".git" || path.startsWith(".git/")) continue;
+      if (entry.isDirectory()) {
+        if ((await readdir(full)).length === 0) found[`${path}/`] = "(empty folder)";
+      } else {
+        found[path] = await readFile(full, "utf8");
+      }
+    }
+    return found;
+  }
+
+  /** The exclusion block apkit owns for `folder` in the repository's exclude file, or null. */
+  async function block(repo: string, folder: string): Promise<string | null> {
+    const exclude = await read(repo, ".git/info/exclude");
+    const begin = exclude.indexOf(`# apkit:begin ${folder}\n`);
+    if (begin < 0) return null;
+    const endMarker = `# apkit:end ${folder}\n`;
+    const end = exclude.indexOf(endMarker, begin);
+    return end < 0 ? exclude.slice(begin) : exclude.slice(begin, end + endMarker.length);
+  }
+
+  /** `git status --porcelain` entries as a sorted list. */
+  function status(cwd: string): string[] {
+    return git(cwd, "status", "--porcelain").split("\n").filter(Boolean).sort();
+  }
+
+  /** Every file the manifest records has its hash on disk, and every file apkit added beside the user's own (`user`) is recorded. */
+  async function expectRecordsMatchDisk(folder: string, user: Record<string, string>): Promise<void> {
+    const manifest = JSON.parse(await read(folder, ".agents/apkit.json")) as { files: Record<string, string> };
+    for (const [path, recorded] of Object.entries(manifest.files)) {
+      expect(hash(await readFile(join(folder, ...path.split("/"))))).toBe(recorded);
+    }
+    const added = Object.keys(await tree(folder)).filter(
+      (path) => !path.endsWith("/") && !(path in user) && !["AGENTS.md", "CLAUDE.md", ".agents/apkit.json"].includes(path),
+    );
+    expect(added.sort()).toEqual(Object.keys(manifest.files).sort());
+  }
+
+  /** Each selected agent finds its Skills at its native path, the Context in AGENTS.md, and Claude Code the import line. */
+  async function expectAgentOutputs(folder: string, agents: readonly (keyof typeof AGENTS)[], user: Record<string, string>): Promise<void> {
+    for (const agent of agents) {
+      const root = AGENTS[agent].skillsRoot;
+      expect(await read(folder, `${root}/summarize/SKILL.md`)).toBe(SKILL("summarize"));
+      expect(await read(folder, `${root}/summarize/scripts/run.sh`)).toBe("#!/bin/sh\necho hi\n");
+      expect(await read(folder, `${root}/review/SKILL.md`)).toBe(SKILL("review", "disable-model-invocation: true\n"));
+    }
+    expect(await read(folder, "AGENTS.md")).toContain("<!-- context: communication -->\n# Communication\n\nBe concise.\n");
+    const claudeMd = await read(folder, "CLAUDE.md");
+    expect(claudeMd.includes("@AGENTS.md")).toBe(agents.includes("claude"));
+    const manifest = JSON.parse(await read(folder, ".agents/apkit.json")) as { agents: string[] };
+    expect([...manifest.agents].sort()).toEqual([...agents].sort());
+    await expectRecordsMatchDisk(folder, user);
+  }
+
+  test("one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included", async () => {
+    const { home, repo, worktree } = await repository({ "README.md": "# Repo\n", "CLAUDE.md": "# Repo\n" });
+    for (const agents of [...ALL.map((agent) => [agent]), ALL]) {
+      const folder = await worktree();
+      // Empty folders of the user's own, agent folders among them: the install writes inside them, and removal keeps them.
+      for (const name of [".claude", ".agents", "notes"]) await mkdir(join(folder, name));
+      const before = await tree(folder);
+      const exclude = await read(repo, ".git/info/exclude");
+      const untracked = status(folder);
+
+      const install = cli(home, folder, "install", "engineering", "--agents", agents.join(","), "--yes");
+      expect([agents.join(","), install.code, install.err]).toEqual([agents.join(","), 0, ""]);
+      await expectAgentOutputs(folder, agents, before);
+      expect(status(folder)).toEqual([...untracked, ...(agents.includes("claude") ? [" M CLAUDE.md"] : []), "?? AGENTS.md"].sort());
+
+      const remove = cli(home, folder, "remove");
+      expect([agents.join(","), remove.code, remove.err]).toEqual([agents.join(","), 0, ""]);
+      expect(await tree(folder)).toEqual(before);
+      expect(await read(repo, ".git/info/exclude")).toBe(exclude);
+      expect(status(folder)).toEqual(untracked);
+    }
+    expect(JSON.parse(cli(home, repo, "status", "--all", "--json").out).results).toEqual([]);
+  }, SLOW);
+
+  test("an update records each folder it creates and none that was there; removal deletes only those", async () => {
+    const { home, worktree } = await repository({ "README.md": "# Repo\n" });
+    const folder = await worktree();
+    await mkdir(join(folder, ".grok"));
+    const before = await tree(folder);
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude,grok", "--yes").code).toBe(0);
+    const manifest = JSON.parse(await read(folder, ".agents/apkit.json")) as { folders?: string[] };
+    expect(manifest.folders).toContain(".grok/skills");
+    expect(manifest.folders).not.toContain(".grok");
+    // Dropping an agent deletes the folders its install created.
+    expect(cli(home, folder, "install", "engineering", "--agents", "grok", "--yes").code).toBe(0);
+    expect(existsSync(join(folder, ".claude"))).toBe(false);
+    expect(cli(home, folder, "remove").code).toBe(0);
+    expect(await tree(folder)).toEqual(before);
+  }, SLOW);
+
+  test("removing an install whose manifest has no folder record deletes every folder it leaves empty", async () => {
+    const { home, worktree } = await repository({ "README.md": "# Repo\n" });
+    const folder = await worktree();
+    const before = await tree(folder);
+    expect(cli(home, folder, "install", "engineering", "--agents", ALL.join(","), "--yes").code).toBe(0);
+    // A manifest written before apkit recorded the folders it creates.
+    const path = join(folder, ".agents", "apkit.json");
+    const { folders, ...older } = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    expect(folders).toBeDefined();
+    await writeFile(path, `${JSON.stringify(older, null, 2)}\n`);
+    expect(cli(home, folder, "remove").code).toBe(0);
+    expect(await tree(folder)).toEqual(before);
+  }, SLOW);
+
+  test("for each agent, an install into a repository root and a subfolder adds no untracked entry but the AGENTS.md it creates", async () => {
+    const { home, repo } = await repository({ "CLAUDE.md": "# Repo\n", "sub/CLAUDE.md": "# Sub\n" });
+    for (const agent of ALL) {
+      for (const [target, prefix] of [[repo, ""], [join(repo, "sub"), "sub/"]] as const) {
+        const before = status(repo);
+        expect(before).toEqual([]);
+        const install = cli(home, repo, "install", "engineering", target, "--agents", agent, "--yes");
+        expect([agent, prefix, install.code, install.err]).toEqual([agent, prefix, 0, ""]);
+        // A change to a file the user tracks is allowed; the only new untracked entry is the AGENTS.md apkit created.
+        const changed = agent === "claude" ? [` M ${prefix}CLAUDE.md`] : [];
+        expect([agent, prefix, status(repo)]).toEqual([agent, prefix, [...changed, `?? ${prefix}AGENTS.md`].sort()]);
+        expect(cli(home, repo, "remove", target).code).toBe(0);
+      }
+    }
+  }, SLOW);
+
+  test("install and remove in a linked worktree leave the main checkout's installation as it was", async () => {
+    const { home, repo, worktree } = await repository({ "README.md": "# Repo\n", "CLAUDE.md": "# Repo\n" });
+    expect(cli(home, repo, "install", "engineering", "--agents", ALL.join(","), "--yes").code).toBe(0);
+    const main = await tree(repo);
+    const mainBlock = await block(repo, repo);
+    expect(mainBlock).toContain("/.claude/skills/summarize/\n");
+    const mainStatus = () =>
+      (JSON.parse(cli(home, repo, "status", "--json").out).results as { folder: string; result: string }[]).map((o) => [o.folder, o.result]);
+    expect(mainStatus()).toEqual([[repo, "unchanged"]]);
+
+    const folder = await worktree();
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude,codex,grok", "--yes").code).toBe(0);
+    expect(await block(repo, folder)).not.toBeNull();
+    expect(await tree(repo)).toEqual(main);
+    expect(await block(repo, repo)).toBe(mainBlock);
+    expect(mainStatus()).toEqual([[repo, "unchanged"]]);
+
+    expect(cli(home, folder, "remove").code).toBe(0);
+    expect(await block(repo, folder)).toBeNull();
+    expect(await tree(repo)).toEqual(main);
+    expect(await block(repo, repo)).toBe(mainBlock);
+    expect(mainStatus()).toEqual([[repo, "unchanged"]]);
+  }, SLOW);
+
+  test("four several-agent installs into four linked worktrees at once all succeed and are all listed", async () => {
+    for (let round = 0; round < 3; round++) {
+      const { home, repo, worktree } = await repository({ "README.md": "# Repo\n" });
+      const folders: string[] = [];
+      for (let i = 0; i < 4; i++) folders.push(await worktree());
+      const runs = await Promise.all(folders.map((folder) => cliAsync(home, folder, "install", "engineering", "--agents", ALL.join(","), "--yes")));
+      expect(runs.map((run) => [run.code, run.err])).toEqual(folders.map(() => [0, ""]));
+      const listed = JSON.parse(cli(home, repo, "status", "--all", "--json").out).results as { folder: string; result: string }[];
+      expect(listed.map((o) => [o.folder, o.result]).sort()).toEqual([...folders].sort().map((f) => [f, "unchanged"]));
+      for (const folder of folders) {
+        expect(await block(repo, folder)).toContain("/.agents/apkit.json\n");
+        await expectRecordsMatchDisk(folder, { "README.md": "" });
+        expect(status(folder)).toEqual(["?? AGENTS.md"]);
+      }
+      expect(await readdir(home)).not.toContain("lock");
+    }
+  }, SLOW * 3);
+});
+
 describe("edit consent and instruction-file ownership", () => {
   /** Exact file bytes and directory entries, including empty folders. */
   async function tree(root: string): Promise<Record<string, string>> {
