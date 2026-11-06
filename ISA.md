@@ -325,7 +325,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: `rg` the engine source for `process.platform` and other OS checks; any
   branch on the operating system fails. bash
 - **ISC-63:** [DROPPED — see Decisions 2026-11-05]
-- [ ] **ISC-64:** `guide` names every command, flag, and Host id that the CLI
+- [x] **ISC-64:** `guide` names every command, flag, and Host id that the CLI
   accepts.
   Probe: compare the CLI parser with the guide text; anything the CLI accepts
   that the guide does not name fails. bash
@@ -714,6 +714,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-60: 2026-11-05: published 0.239.1 `package.json` has no dependencies; its bundle imports only `node:` modules
 - ISC-61: 2026-11-05 manual run of `dist/cli.js` @2dd146d on Node 26.12.1 with marker-writing fakes as the whole `PATH`, from `init` to `migrate`: no marker
 - ISC-62: `test/cli.test.ts` "the bundle imports only node: built-ins and never checks the operating system" with `APKIT_CLI=dist/cli.js`; `rg` of `src/` found no OS check
+- ISC-64: `test/cli.test.ts` "the guide covers every command, flag, and agent the CLI accepts"
 - ISC-66: `test/cli.test.ts` "a changed Codex hook and OpenCode configuration are a decision that names apkit's part, and nothing changes"; "a changed Skill folder and Markdown output are listed with their origin; --yes cannot keep a Skill this apkit installs again"
 - ISC-73: `test/cli.test.ts` "install --global puts a Profile's Context in each agent's user-level file, after consent"
 - ISC-74: `test/cli.test.ts` "status names Context installed both at user level and in the Project, and never blocks"

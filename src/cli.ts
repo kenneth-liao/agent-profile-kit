@@ -5,6 +5,7 @@
 import { lstat, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { display, groupedWarning, nextCommand } from "./output.js";
 import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "./guide.js";
@@ -54,7 +55,7 @@ class UsageError extends Error {}
  * everywhere (help, guide, and contract print text with it). Anything else is a usage error,
  * before any read or write.
  */
-const OPTIONS: Readonly<Record<string, readonly string[]>> = {
+export const OPTIONS: Readonly<Record<string, readonly string[]>> = {
   help: [],
   guide: [],
   contract: [],
@@ -788,17 +789,21 @@ async function run(argv: readonly string[]): Promise<number> {
   }
 }
 
-main(process.argv.slice(2)).then(
-  (code) => {
-    process.exitCode = code;
-  },
-  async (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    // A failed `migrate` may already have renamed the old state, or may name `migrate` itself.
-    const migrating = process.argv.slice(2).find((arg) => !arg.startsWith("--")) === "migrate";
-    const state = migrating && unmigrated !== null && !(await exists(unmigrated)) ? null : unmigrated;
-    if (process.argv.includes("--json")) console.log(JSON.stringify({ error: message, ...migrationField(state) }));
-    else console.error(state === null || message.includes(MIGRATE) ? message : `${message}\n${migrationNotice(state)}`);
-    process.exitCode = error instanceof UsageError ? EXIT.usage : EXIT.error;
-  },
-);
+// Imports expose the parser inventory without running the command. Older Node
+// releases lack import.meta.main; resolve the entry path to support npm symlinks.
+if (import.meta.main ?? (process.argv[1] !== undefined && import.meta.url === pathToFileURL(await realpath(process.argv[1])).href)) {
+  main(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    async (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      // A failed `migrate` may already have renamed the old state, or may name `migrate` itself.
+      const migrating = process.argv.slice(2).find((arg) => !arg.startsWith("--")) === "migrate";
+      const state = migrating && unmigrated !== null && !(await exists(unmigrated)) ? null : unmigrated;
+      if (process.argv.includes("--json")) console.log(JSON.stringify({ error: message, ...migrationField(state) }));
+      else console.error(state === null || message.includes(MIGRATE) ? message : `${message}\n${migrationNotice(state)}`);
+      process.exitCode = error instanceof UsageError ? EXIT.usage : EXIT.error;
+    },
+  );
+}

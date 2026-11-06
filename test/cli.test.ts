@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
+import { OPTIONS } from "../src/cli.js";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { hash } from "../src/install.js";
 import { AGENTS } from "../src/render.js";
@@ -1181,16 +1182,15 @@ describe("apkit CLI", () => {
     const guide = cli(home, home, "guide");
     expect(guide.code).toBe(0);
     expect(guide.out).toBe(`${GUIDE}\n`);
-    const commands = [...HELP.matchAll(new RegExp(`^  ${COMMAND} (\\w+)`, "gm"))].map((m) => m[1] as string);
-    expect(commands.length).toBeGreaterThan(5);
+    const commands = Object.keys(OPTIONS);
     for (const command of commands) {
-      if (command !== "guide") expect(GUIDE).toContain(`${COMMAND} ${command}`);
-      expect(cli(home, home, command, "--json").err).not.toContain("Unknown command");
+      expect(guide.out).toContain(`${COMMAND} ${command}`);
+      const help = cli(home, home, command, "--help");
+      expect([help.code, help.out, help.err]).toEqual([0, `${HELP}\n`, ""]);
     }
-    for (const flag of [...HELP.matchAll(/^  (--[a-z]+)/gm)].map((m) => m[1] as string)) {
-      if (flag !== "--workspace") expect(GUIDE).toContain(flag);
-    }
-    for (const agent of Object.keys(AGENTS)) expect(GUIDE).toContain(agent);
+    const flags = new Set(["--help", "--json", ...Object.values(OPTIONS).flat()]);
+    for (const flag of flags) expect(guide.out).toContain(flag);
+    for (const agent of Object.keys(AGENTS)) expect(guide.out).toContain(agent);
   });
 
   test("`contract` prints the Workspace contract byte for byte, without a lock or a Workspace", async () => {
