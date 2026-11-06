@@ -84,8 +84,8 @@ ask.
 The Workspace contract states every rule, with examples. Read it with
 \`${COMMAND} contract\` before you author or repair a Workspace. Edit these
 files directly, then run \`${COMMAND} check\`. Fix every error it reports:
-errors block installs. Warnings name files apkit skips; they never block an
-install.
+errors block installs. Warnings name files or selections apkit skips; they never
+block an install.
 
 - Context is always-on guidance for every session in a project, such as a
   communication style. Keep it short: agents load all of it, every session.

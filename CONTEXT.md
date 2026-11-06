@@ -17,7 +17,7 @@ The `apkit-workspace.yaml` file that marks a folder as a Workspace. It may be em
 _Avoid_: Installation Manifest, Profile
 
 **Workspace Error**:
-A validation finding that would make an install wrong or ambiguous. Any Workspace Error stops every `install` and `update` until it is fixed. A file that apkit skips is a warning instead: every warning is shown, and no warning stops an install (ADR-0057).
+A validation finding that would make an install wrong or ambiguous. Any Workspace Error stops every `install` and `update` until it is fixed. A file or a repeated Skill selection that apkit skips is a warning instead: every warning is shown, and no warning stops an install (ADR-0057).
 _Avoid_: Decision, Blocker
 
 **Agent**:

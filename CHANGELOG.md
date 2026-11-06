@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Fixed a Skill named twice in a Profile's `skills` list blocking every install as a `duplicate-selection` error; it is now a `duplicate-skill-selection` warning and the Skill is installed once, while a repeated Context ID stays an error, and the Workspace contract now says where this machine records the selected Workspace and installed folders (#791)
 - Fixed every command ignoring extra arguments, so `apkit remove my project` removed from `my` and exited 0; an argument past the ones a command takes, or a folder given with `--global` or `--all`, now stops with exit 2, names the command's usage, and changes nothing (#775)
 - Fixed `remove`, and an `update` that drops an agent, deleting empty folders the user had before the install, such as an empty `.claude/` or `.agents/`; the Installation Manifest now records the Project folders the install created, and removal deletes only those, while an install recorded by an earlier apkit prunes as before; `migrate` records as created only folders of the old engine's outputs, so it keeps an empty folder the user had before a current install (#779)
 - Fixed Workspace validation reports omitting offending paths for duplicate Skills, duplicate Profiles, and missing references, and omitting concrete corrections for duplicate Skills, invalid Profile YAML, repeated selections, and missing references (#782)
