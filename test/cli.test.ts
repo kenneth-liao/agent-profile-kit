@@ -2070,7 +2070,8 @@ describe("edit consent and instruction-file ownership", () => {
         const ws = await makeWorkspace();
         const repo = await tempDir("repo");
         const git = (...args: string[]) => {
-          const result = spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, encoding: "utf8" });
+          // Pin line endings so the runner's Git settings (Windows autocrlf) cannot add stderr warnings.
+          const result = spawnSync("git", ["-c", "core.autocrlf=false", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, encoding: "utf8" });
           expect([result.status, result.stderr]).toEqual([0, ""]);
         };
         git("init", "-q");
