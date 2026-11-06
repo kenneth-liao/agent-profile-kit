@@ -712,7 +712,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-50: `test/cli.test.ts` "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (all six agents; also with `APKIT_CLI=dist/cli.js`)
 - ISC-51: `test/cli.test.ts` "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-52: `test/cli.test.ts` "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install" (all six Hosts)
-- ISC-53: `test/cli.test.ts` "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (each agent and all six together)
+- ISC-53: `test/cli.test.ts` "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (each agent and all six together, beside the user's empty `.claude/` and `.agents/`); "an update records each folder it creates and none that was there; removal deletes only those"
 - ISC-54: `test/cli.test.ts` "install and remove in a linked worktree leave the main checkout's installation as it was"
 - ISC-55: `test/cli.test.ts` "for each agent, an install into a repository root and a subfolder adds no untracked entry but the AGENTS.md it creates"; "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (linked worktree root)
 - ISC-56: `test/cli.test.ts` "a symlink that leads outside the Project needs a decision before any write there"

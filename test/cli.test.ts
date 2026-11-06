@@ -1759,8 +1759,8 @@ describe("several agents in linked worktrees", () => {
     const { home, repo, worktree } = await repository({ "README.md": "# Repo\n", "CLAUDE.md": "# Repo\n" });
     for (const agents of [...ALL.map((agent) => [agent]), ALL]) {
       const folder = await worktree();
-      // An empty folder of the user's own: removal keeps it.
-      await mkdir(join(folder, "notes"));
+      // Empty folders of the user's own, agent folders among them: the install writes inside them, and removal keeps them.
+      for (const name of [".claude", ".agents", "notes"]) await mkdir(join(folder, name));
       const before = await tree(folder);
       const exclude = await read(repo, ".git/info/exclude");
       const untracked = status(folder);
@@ -1777,6 +1777,37 @@ describe("several agents in linked worktrees", () => {
       expect(status(folder)).toEqual(untracked);
     }
     expect(JSON.parse(cli(home, repo, "status", "--all", "--json").out).results).toEqual([]);
+  }, SLOW);
+
+  test("an update records each folder it creates and none that was there; removal deletes only those", async () => {
+    const { home, worktree } = await repository({ "README.md": "# Repo\n" });
+    const folder = await worktree();
+    await mkdir(join(folder, ".grok"));
+    const before = await tree(folder);
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude,grok", "--yes").code).toBe(0);
+    const manifest = JSON.parse(await read(folder, ".agents/apkit.json")) as { folders?: string[] };
+    expect(manifest.folders).toContain(".grok/skills");
+    expect(manifest.folders).not.toContain(".grok");
+    // Dropping an agent deletes the folders its install created.
+    expect(cli(home, folder, "install", "engineering", "--agents", "grok", "--yes").code).toBe(0);
+    expect(existsSync(join(folder, ".claude"))).toBe(false);
+    expect(cli(home, folder, "remove").code).toBe(0);
+    expect(await tree(folder)).toEqual(before);
+  }, SLOW);
+
+  test("removing an install whose manifest has no folder record deletes every folder it leaves empty", async () => {
+    const { home, worktree } = await repository({ "README.md": "# Repo\n" });
+    const folder = await worktree();
+    const before = await tree(folder);
+    expect(cli(home, folder, "install", "engineering", "--agents", ALL.join(","), "--yes").code).toBe(0);
+    // A manifest written before apkit recorded the folders it creates.
+    const path = join(folder, ".agents", "apkit.json");
+    const { folders, ...older } = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    expect(folders).toBeDefined();
+    await writeFile(path, `${JSON.stringify(older, null, 2)}\n`);
+    expect(cli(home, folder, "remove").code).toBe(0);
+    expect(await tree(folder)).toEqual(before);
   }, SLOW);
 
   test("for each agent, an install into a repository root and a subfolder adds no untracked entry but the AGENTS.md it creates", async () => {
