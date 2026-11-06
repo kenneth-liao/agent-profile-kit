@@ -688,7 +688,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 
 ## Verification
 
-Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless the line says otherwise.
+Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless the line says otherwise.
 
 - ISC-5: `test/cli.test.ts` "the daily loop: select, check, install, edit, update everywhere, remove"
 - ISC-9: `test/cli.test.ts` "the daily loop: select, check, install, edit, update everywhere, remove"; "no run overwrites a file that the user changed"; "install, update, and remove preserve changed generated files until --overwrite" (the CLI never prompts; consent is a flag)
