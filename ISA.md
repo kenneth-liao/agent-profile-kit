@@ -721,7 +721,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-43: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-44: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
 - ISC-46: `test/cli.test.ts` "0.20.0 minimal: one CLI check names every needed change, and those changes suffice"; "0.20.0 partial: one CLI check names every needed change, and those changes suffice"; "0.95.0: one CLI check names every needed change, and those changes suffice"; "0.204.0 source: one CLI check names every needed change, and those changes suffice"; "0.204.0 realistic: one CLI check names every needed change, and those changes suffice"; "0.237.0: one CLI check names every needed change, and those changes suffice"
-- ISC-47.1: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"
+- ISC-47.1: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"; "the engine source never starts a program: no child_process, Bun.spawn, or Bun.$"
 - ISC-47.2: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"
 - ISC-48: `test/cli.test.ts` "init and workspace select Workspaces with errors and show the complete check report (ISC-48)"
 - ISC-49: 2026-11-05 manual run @2dd146d: `--help` names `apkit contract`; its output is byte-identical to `docs/guides/workspace-contract.md`
@@ -736,7 +736,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-58: `test/cli.test.ts` "four several-agent installs into four linked worktrees at once all succeed and are all listed" (all six agents)
 - ISC-59: CI run 42127574355 @2dd146d: tests and Node 22 CLI passed on ubuntu, macOS, and Windows
 - ISC-60: 2026-11-05: published 0.239.1 `package.json` has no dependencies; its bundle imports only `node:` modules
-- ISC-61: `test/cli.test.ts` "the full lifecycle including retained migration starts no program"
+- ISC-61: `test/cli.test.ts` "the full lifecycle including retained migration starts no program"; "the engine source never starts a program: no child_process, Bun.spawn, or Bun.$"
 - ISC-62: `test/cli.test.ts` "the bundle imports only node: built-ins and never checks the operating system" with `APKIT_CLI=dist/cli.js`; `rg` of `src/` found no OS check
 - ISC-64: `test/cli.test.ts` "the guide covers every command, flag, and agent the CLI accepts"
 - ISC-65: `test/cli.test.ts` "each project install Decision preserves the complete Project, home and Workspace trees"; "outside-folder install, update and removal Decisions preserve links and their targets as well as home"; "global install, update, removal and setup Decisions preserve every home file including both registries"; "migration Decisions preserve complete home, Project, Workspace and old-state trees"

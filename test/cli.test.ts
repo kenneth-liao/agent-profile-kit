@@ -7,7 +7,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { OPTIONS } from "../src/command.js";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { hash } from "../src/install.js";
-import { AGENTS } from "../src/render.js";
+import { AGENTS, type AgentId } from "../src/render.js";
 import { loadWorkspace, type Violation } from "../src/workspace.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CASE_SENSITIVE_CONTEXT, ERROR_KINDS } from "./validation-cases.js";
@@ -19,6 +19,8 @@ import { materializeMachine, materializeMigration, type MigrationFixture } from 
 setDefaultTimeout(30_000);
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
+/** What starting a program looks like in the engine's source or bundle (ADR-0059: the engine starts none). */
+const STARTS_PROGRAMS = /child_process|\bBun\s*\.\s*(?:spawn|spawnSync|\$)/;
 /** Set APKIT_CLI to a built bundle (relative to the repository root, e.g. `dist/cli.js`) to run the journey on Node. */
 const BUILT = process.env.APKIT_CLI;
 const RUNTIME = BUILT ? ["node", resolve(import.meta.dir, "..", BUILT)] : [process.execPath, CLI];
@@ -29,7 +31,8 @@ function cli(home: string, cwd: string, ...args: string[]) {
 }
 
 function cliEnv(home: string, extra: Record<string, string> = {}): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env, APKIT_HOME: home, HOME: home, USERPROFILE: home };
+  // Bun's transpiler cache would otherwise land in the home folder, which many journeys compare.
+  const env: Record<string, string | undefined> = { ...process.env, APKIT_HOME: home, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" };
   for (const name of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR", "GROK_HOME"]) delete env[name];
   Object.assign(env, extra);
   return env;
@@ -1449,6 +1452,19 @@ describe("apkit CLI", () => {
     expect(specifiers.length).toBeGreaterThan(0);
     expect(specifiers.filter((s) => !s?.startsWith("node:"))).toEqual([]);
     expect(bundle.includes("process.platform")).toBe(false);
+    expect(bundle.match(STARTS_PROGRAMS)).toBeNull();
+  });
+
+  test("the engine source never starts a program: no child_process, Bun.spawn, or Bun.$", async () => {
+    const src = resolve(import.meta.dir, "..", "src");
+    const files = (await readdir(src, { recursive: true })).filter((path) => path.endsWith(".ts"));
+    expect(files.length).toBeGreaterThan(0);
+    const found = [];
+    for (const file of files) {
+      const match = (await readFile(join(src, file), "utf8")).match(STARTS_PROGRAMS);
+      if (match) found.push(`${file}: ${match[0]}`);
+    }
+    expect(found).toEqual([]);
   });
 });
 
@@ -2217,8 +2233,7 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
 
   /** Runs with the new apkit home apart from the home folder, so the home folder holds only the user's and the old engine's files. */
   function migrateCli(fixture: MigrationFixture, cwd: string, ...args: string[]) {
-    // Bun's transpiler cache would otherwise land in the home folder that these journeys compare.
-    return cliWithEnv({ APKIT_HOME: join(fixture.root, "apkit"), BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, fixture.home, cwd, ...args);
+    return cliWithEnv({ APKIT_HOME: join(fixture.root, "apkit") }, fixture.home, cwd, ...args);
   }
 
   /** `exactTree` of `folder`, skipping `.git` except its exclude file, with `folder` written as `<folder>`. */
@@ -3037,7 +3052,7 @@ describe("the migration notice (SRC-10)", () => {
   /** Runs with the new apkit home apart from the home folder, as the migrate journeys do. */
   function runner(fixture: MigrationFixture) {
     return (cwd: string, ...args: string[]) =>
-      cliWithEnv({ APKIT_HOME: join(fixture.root, "apkit"), BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, fixture.home, cwd, ...args);
+      cliWithEnv({ APKIT_HOME: join(fixture.root, "apkit") }, fixture.home, cwd, ...args);
   }
 
   test("with unmigrated old state, every command names `apkit migrate`, and none changes the old state", async () => {
@@ -3262,9 +3277,6 @@ describe("published standard Skill packages (ISC-38)", () => {
 
 
 describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
-  function folderCli(home: string, cwd: string, ...args: string[]) {
-    return cliWithEnv({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, home, cwd, ...args);
-  }
 
 
   test("only caller-supplied paths select a Workspace, including migration without a legacy selection", async () => {
@@ -3272,11 +3284,11 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
     const cwd = await tempDir("selection-cwd");
     const one = await tempDir("selection-one");
     const two = await makeWorkspace();
-    expect(folderCli(home, cwd, "init").code).toBe(2);
+    expect(cli(home, cwd, "init").code).toBe(2);
     expect(await exactTree(home)).toEqual({});
     expect(await exactTree(cwd)).toEqual({});
     for (const [command, path] of [["init", one], ["init", one], ["workspace", one], ["workspace", one], ["workspace", two]]) {
-      const result = folderCli(home, cwd, command!, path!, "--json");
+      const result = cli(home, cwd, command!, path!, "--json");
       expect([result.code, result.err]).toEqual([0, ""]);
       expect(JSON.parse(result.out).workspace).toBe(path);
       expect(JSON.parse(await read(home, "config.json")).workspace).toBe(path);
@@ -3288,7 +3300,7 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
       ".agents/agent-profile-kit/config.yaml": "schema_version: 1\n",
       "apkit/config.json": '{"installs": []}\n',
     });
-    const run = (...args: string[]) => cliWithEnv({ APKIT_HOME: apkitHome, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, legacyHome, cwd, ...args);
+    const run = (...args: string[]) => cliWithEnv({ APKIT_HOME: apkitHome }, legacyHome, cwd, ...args);
     expect(JSON.parse(run("workspace", "--json").out).workspace).toBeNull();
     const migrated = run("migrate", "--json");
     expect([migrated.code, migrated.err]).toEqual([0, ""]);
@@ -3311,10 +3323,10 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
       const cwd = await tempDir("relative-cwd");
       const elsewhere = await tempDir("elsewhere");
       const expected = resolve(cwd, path);
-      const initialized = folderCli(home, cwd, "init", path, "--json");
+      const initialized = cli(home, cwd, "init", path, "--json");
       expect([initialized.code, initialized.err]).toEqual([0, ""]);
       expect(JSON.parse(initialized.out).workspace).toBe(expected);
-      const checked = folderCli(home, elsewhere, "check", "--json");
+      const checked = cli(home, elsewhere, "check", "--json");
       expect([checked.code, checked.err]).toEqual([0, ""]);
       expect(JSON.parse(checked.out)).toMatchObject({ workspace: expected, valid: true });
       expect(JSON.parse(await read(home, "config.json")).workspace).toBe(expected);
@@ -3337,11 +3349,11 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
       }
       if (state === "partial") await writeTree(root, { "context/existing.md": "Existing Context.\n" });
       const before = await exactTree(root);
-      const result = folderCli(home, home, "init", root, "--json");
+      const result = cli(home, home, "init", root, "--json");
       expect([result.code, result.err]).toEqual([0, ""]);
       expect(await exactTree(root)).toEqual({ ...structure, ...before });
       expect(JSON.parse(result.out).added.sort()).toEqual(Object.keys(structure).filter((path) => !(path in before)).sort());
-      const checked = folderCli(home, home, "check", "--json");
+      const checked = cli(home, home, "check", "--json");
       expect([checked.code, checked.err]).toEqual([0, ""]);
       expect(JSON.parse(checked.out)).toMatchObject({ workspace: root, valid: true });
     }
@@ -3366,7 +3378,7 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
         });
       }
       const before = await exactTree(root);
-      const result = folderCli(home, home, "init", root, "--json");
+      const result = cli(home, home, "init", root, "--json");
       expect([result.code, result.err]).toEqual([0, ""]);
       const after = await exactTree(root);
       // Exact whole-tree equality catches changes, moves, deletions, and extra additions.
@@ -3378,7 +3390,7 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
       expect(JSON.parse(result.out).added.sort()).toEqual(
         ["apkit-workspace.yaml", "context/", "skills/", "profiles/"].filter((path) => !(path in before)).sort(),
       );
-      const checked = folderCli(home, home, "check", "--json");
+      const checked = cli(home, home, "check", "--json");
       expect(checked.code).toBe(state === "invalid" ? 1 : 0);
       expect(JSON.parse(checked.out)).toMatchObject({ workspace: root, valid: state !== "invalid" });
     }
@@ -3389,6 +3401,8 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
 describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", () => {
   const ALL = "antigravity,claude,codex,grok,opencode,pi";
   const HOST_DIRS = [".gemini/antigravity", ".claude", ".codex", ".grok", ".config/opencode", ".pi/agent"];
+  /** The program each agent runs as (docs/ARCHITECTURE.md, Evidence column). */
+  const PROGRAMS: Record<AgentId, string> = { antigravity: "agy", claude: "claude", codex: "codex", grok: "grok", opencode: "opencode", pi: "pi" };
   // Resolve Node before replacing PATH; the Bun runner is already an absolute path.
   const runtime = BUILT ? spawnSync("node", ["-p", "process.execPath"], { encoding: "utf8" }).stdout.trim() : process.execPath;
 
@@ -3396,7 +3410,8 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
   async function fakePrograms() {
     const bin = await tempDir("fake-bin");
     const markers = await tempDir("markers");
-    const names = [...ALL.split(","), "git", "node", "bun", "sh", "bash", "cmd", "powershell", "pwsh"];
+    // Each agent's real program name (Antigravity's is `agy`), and its ID too, so neither can start unseen.
+    const names = [...new Set([...Object.keys(PROGRAMS), ...Object.values(PROGRAMS)]), "git", "node", "bun", "sh", "bash", "cmd", "powershell", "pwsh"];
     for (const name of names) {
       await writeFile(join(bin, name), `#!/bin/sh\nprintf started > "$APKIT_EXEC_MARKER/${name}"\n`);
       await chmod(join(bin, name), 0o755);
@@ -3419,7 +3434,7 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
   }
 
   function isolatedCli(extra: Record<string, string>, home: string, cwd: string, ...args: string[]) {
-    const env = cliEnv(home, { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", ...extra });
+    const env = cliEnv(home, extra);
     for (const key of Object.keys(env)) if (["PATH", "PATHEXT"].includes(key.toUpperCase()) && key !== key.toUpperCase()) delete env[key];
     const result = spawnSync(runtime, [...RUNTIME.slice(1), ...args, "--json"], { cwd, env, encoding: "utf8" });
     expect(result.error).toBeUndefined();
@@ -3525,7 +3540,7 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
     run("check");
     for (const command of ["help", "guide", "contract"]) {
       // These commands print plain text even when --json is present.
-      const result = spawnSync(runtime, [...RUNTIME.slice(1), command], { cwd: project, env: cliEnv(home, { ...env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }), encoding: "utf8" });
+      const result = spawnSync(runtime, [...RUNTIME.slice(1), command], { cwd: project, env: cliEnv(home, env), encoding: "utf8" });
       expect([result.status, result.error, result.stderr]).toEqual([0, undefined, ""]);
     }
     for (const dir of HOST_DIRS) await mkdir(join(home, dir), { recursive: true });
