@@ -121,7 +121,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   the concrete regressions protected by the changed tests.
   Probe: replay the named representative faults for a test consolidation or
   relocation against retained coverage; an undetected fault fails. bash
-- [ ] **ISC-16:** Qualification outcomes do not depend on undeclared ambient
+- [x] **ISC-16:** Qualification outcomes do not depend on undeclared ambient
   machine state.
   Probe: vary unselected Host executables and unrelated environment settings
   around isolated fixtures; changed outcomes or unexpected real Host execution
@@ -252,11 +252,11 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   contract, including a realistic-scale fixture with neutral content modeled on
   the principal's Workspace; a failure without a complete change list fails.
   bash
-- [ ] **ISC-47.1:** **Anti:** Detecting which Hosts are installed never starts a
+- [x] **ISC-47.1:** **Anti:** Detecting which Hosts are installed never starts a
   Host program.
   Probe: run every command that detects installed Hosts with fake Host
   executables that write a marker when started; any marker fails. bash
-- [ ] **ISC-47.2:** **Anti:** Detecting which Hosts are installed never writes a
+- [x] **ISC-47.2:** **Anti:** Detecting which Hosts are installed never writes a
   file.
   Probe: compare the isolated home and working directory before and after every
   command that detects installed Hosts; any new or changed file fails. bash
@@ -329,7 +329,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   accepts.
   Probe: compare the CLI parser with the guide text; anything the CLI accepts
   that the guide does not name fails. bash
-- [ ] **ISC-65:** **Anti:** A run that stops for a user decision changes no
+- [x] **ISC-65:** **Anti:** A run that stops for a user decision changes no
   file.
   Probe: snapshot the Project and the home folder, trigger each decision case,
   and compare; any change fails. bash
@@ -695,6 +695,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-11: `test/release.test.ts` "failing, skipped, omitted-file and interrupted plain test runs cannot record success"
 - ISC-13: 2026-11-05: the npm tarballs of 0.239.0-rc.1 to 0.239.1 match the digest in each release's `qualification-record.json`
 - ISC-14: CI run 42127574355 @2dd146d: every job passed within its `timeout-minutes` (10)
+- ISC-16: `test/cli.test.ts` "antigravity: unselected programs and unrelated environment settings do not change isolated outcomes"; "claude: unselected programs and unrelated environment settings do not change isolated outcomes"; "codex: unselected programs and unrelated environment settings do not change isolated outcomes"; "grok: unselected programs and unrelated environment settings do not change isolated outcomes"; "opencode: unselected programs and unrelated environment settings do not change isolated outcomes"; "pi: unselected programs and unrelated environment settings do not change isolated outcomes"
 - ISC-22: 2026-11-05 manual run of `dist/cli.js` @2dd146d: bare `apkit` names `apkit workspace [<path>]`; running it in a fresh home selected the fixture
 - ISC-23: `test/cli.test.ts` "only caller-supplied paths select a Workspace, including migration without a legacy selection"
 - ISC-25.1: `test/cli.test.ts` "`init` and `workspace` without a path, and `--help`, write nothing in a fresh home (ISC-25.1)"
@@ -720,6 +721,8 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-43: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-44: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
 - ISC-46: `test/cli.test.ts` "every retained format names all needed changes in one CLI check, and those changes suffice"
+- ISC-47.1: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"
+- ISC-47.2: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"
 - ISC-48: `test/cli.test.ts` "init and workspace select Workspaces with errors and show the complete check report (ISC-48)"
 - ISC-49: 2026-11-05 manual run @2dd146d: `--help` names `apkit contract`; its output is byte-identical to `docs/guides/workspace-contract.md`
 - ISC-52: `test/cli.test.ts` "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install" (all six Hosts)
@@ -727,9 +730,10 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-57: `test/cli.test.ts` "remove forgets a deleted linked worktree and drops its block"
 - ISC-59: CI run 42127574355 @2dd146d: tests and Node 22 CLI passed on ubuntu, macOS, and Windows
 - ISC-60: 2026-11-05: published 0.239.1 `package.json` has no dependencies; its bundle imports only `node:` modules
-- ISC-61: 2026-11-05 manual run of `dist/cli.js` @2dd146d on Node 26.12.1 with marker-writing fakes as the whole `PATH`, from `init` to `migrate`: no marker
+- ISC-61: `test/cli.test.ts` "the full lifecycle including retained migration starts no program"
 - ISC-62: `test/cli.test.ts` "the bundle imports only node: built-ins and never checks the operating system" with `APKIT_CLI=dist/cli.js`; `rg` of `src/` found no OS check
 - ISC-64: `test/cli.test.ts` "the guide covers every command, flag, and agent the CLI accepts"
+- ISC-65: `test/cli.test.ts` "each project install Decision preserves the complete Project, home and Workspace trees"; "outside-folder install, update and removal Decisions preserve links and their targets as well as home"; "global install, update, removal and setup Decisions preserve every home file including both registries"; "migration Decisions preserve complete home, Project, Workspace and old-state trees"
 - ISC-66: `test/cli.test.ts` "a changed Codex hook and OpenCode configuration are a decision that names apkit's part, and nothing changes"; "a changed Skill folder and Markdown output are listed with their origin; --yes cannot keep a Skill this apkit installs again"
 - ISC-67: `test/cli.test.ts` "a Project the old engine installed is removed by the current apkit alone: after migrate and remove it matches the Project before the old install"; takeover: "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install"
 - ISC-70: `test/cli.test.ts` "setup --yes gives every detected agent's user-level file a note that points to guide (all six agents)"
