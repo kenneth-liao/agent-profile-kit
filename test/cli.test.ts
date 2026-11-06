@@ -3,6 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
+import { OPTIONS } from "../src/command.js";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { hash } from "../src/install.js";
 import { AGENTS } from "../src/render.js";
@@ -811,6 +812,89 @@ describe("apkit CLI", () => {
     expect(await homeSnapshot(home)).toEqual(before);
   });
 
+  test("setup --yes gives every detected agent's user-level file a note that points to guide (all six agents)", async () => {
+    const home = await tempDir("home");
+    // Only each agent's own folder, empty: setup detects the agent and creates the file it reads.
+    for (const dir of [".claude", ".codex", ".config/opencode", ".pi/agent", ".grok", ".gemini/antigravity"]) {
+      await mkdir(join(home, ...dir.split("/")), { recursive: true });
+    }
+    // A first run lets Bun write its own cache under this home before the snapshot (--help writes nothing of apkit's).
+    expect(cli(home, home, "--help").code).toBe(0);
+    const before = await homeSnapshot(home);
+    const setup = cli(home, home, "setup", "--yes", "--json");
+    expect(setup.code).toBe(0);
+    const files = JSON.parse(setup.out).files as { agents: string[] }[];
+    expect(files.flatMap((file) => file.agents).sort()).toEqual(Object.keys(AGENTS).sort());
+    for (const path of USER_FILES) expect({ path, text: await read(home, path) }).toEqual({ path, text: expect.stringContaining(`run \`${COMMAND} guide\``) });
+    expect(cli(home, home, "setup", "--remove").code).toBe(0);
+    expect(await homeSnapshot(home)).toEqual(before);
+  });
+
+  test("setup and a global install for OpenCode never create a file earlier in its lookup order than ~/.claude/CLAUDE.md", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    await writeTree(home, { ".claude/CLAUDE.md": "# Mine\n", ".config/opencode/opencode.json": "{}\n" });
+    const before = await homeSnapshot(home);
+    const changedPaths = async () => {
+      const now = await homeSnapshot(home);
+      return [...new Set([...Object.keys(before), ...Object.keys(now)])].filter((path) => before[path] !== now[path]).sort();
+    };
+
+    expect(cli(home, home, "setup", "--agents", "opencode", "--yes").code).toBe(0);
+    expect(await changedPaths()).toEqual([".claude/CLAUDE.md"]);
+    expect(await read(home, ".claude/CLAUDE.md")).toContain(`run \`${COMMAND} guide\``);
+
+    expect(cli(home, home, "install", "engineering", "--global", "--agents", "opencode", "--yes").code).toBe(0);
+    // OpenCode's user-level Skills go to ~/.agents/skills; its instruction file is still only CLAUDE.md.
+    expect((await changedPaths()).filter((path) => !path.startsWith(".agents/"))).toEqual([".claude/CLAUDE.md"]);
+    expect(await read(home, ".claude/CLAUDE.md")).toContain("Be concise.");
+    expect(existsSync(join(home, ".config", "opencode", "AGENTS.md"))).toBe(false);
+  });
+
+  test("setup --remove and remove --global restore each agent's user-level file byte for byte, with CRLF and no final newline", async () => {
+    const userFiles = {
+      ".claude/CLAUDE.md": "# Mine\r\n\r\nBe brief.\r\n",
+      ".codex/AGENTS.md": "# Codex\n\nNo final newline.",
+      ".config/opencode/AGENTS.md": "# OpenCode\r\n\r\nCRLF, no final newline.",
+      ".pi/agent/AGENTS.md": "# Pi\n\nKeep it short.\n",
+      ".grok/rules/mine.md": "# Rules\n",
+      ".gemini/AGENTS.md": "",
+      ".gemini/antigravity/settings.json": "{}\n",
+    };
+    const all = Object.keys(AGENTS).join(",");
+    const steps = {
+      setup: ["setup", "--yes"],
+      global: ["install", "engineering", "--global", "--agents", all, "--yes"],
+      "remove setup": ["setup", "--remove"],
+      "remove global": ["remove", "--global"],
+    } as const;
+    const sequences: (keyof typeof steps)[][] = [
+      ["setup", "remove setup"],
+      ["global", "remove global"],
+      ["setup", "global", "remove setup", "remove global"],
+      ["setup", "global", "remove global", "remove setup"],
+    ];
+    const userPaths = [".claude/CLAUDE.md", ".codex/AGENTS.md", ".config/opencode/AGENTS.md", ".pi/agent/AGENTS.md", ".grok/rules/apkit.md", ".gemini/AGENTS.md"];
+    for (const sequence of sequences) {
+      const home = await tempDir("home");
+      const ws = await makeWorkspace();
+      cli(home, home, "workspace", ws);
+      await writeTree(home, userFiles);
+      const before = await homeSnapshot(home);
+      for (const step of sequence) {
+        const result = cli(home, home, ...steps[step]);
+        expect({ sequence, step, code: result.code, err: result.err }).toEqual({ sequence, step, code: 0, err: "" });
+        // Each install step really wrote every agent's file.
+        const marker = step === "setup" ? `run \`${COMMAND} guide\`` : step === "global" ? "Be concise." : null;
+        if (marker !== null) {
+          for (const path of userPaths) expect({ sequence, path, text: await read(home, path) }).toEqual({ sequence, path, text: expect.stringContaining(marker) });
+        }
+      }
+      expect({ sequence, home: await homeSnapshot(home) }).toEqual({ sequence, home: before });
+    }
+  });
+
   test("a global install into agent folders outside the home is updated and removed like any other", async () => {
     const base = await tempDir("outside");
     const home = join(base, "home");
@@ -1251,16 +1335,15 @@ describe("apkit CLI", () => {
     const guide = cli(home, home, "guide");
     expect(guide.code).toBe(0);
     expect(guide.out).toBe(`${GUIDE}\n`);
-    const commands = [...HELP.matchAll(new RegExp(`^  ${COMMAND} (\\w+)`, "gm"))].map((m) => m[1] as string);
-    expect(commands.length).toBeGreaterThan(5);
+    const commands = Object.keys(OPTIONS);
     for (const command of commands) {
-      if (command !== "guide") expect(GUIDE).toContain(`${COMMAND} ${command}`);
-      expect(cli(home, home, command, "--json").err).not.toContain("Unknown command");
+      expect(guide.out).toContain(`${COMMAND} ${command}`);
+      const help = cli(home, home, command, "--help");
+      expect([help.code, help.out, help.err]).toEqual([0, `${HELP}\n`, ""]);
     }
-    for (const flag of [...HELP.matchAll(/^  (--[a-z]+)/gm)].map((m) => m[1] as string)) {
-      if (flag !== "--workspace") expect(GUIDE).toContain(flag);
-    }
-    for (const agent of Object.keys(AGENTS)) expect(GUIDE).toContain(agent);
+    const flags = new Set(["--help", "--json", ...Object.values(OPTIONS).flat()]);
+    for (const flag of flags) expect(guide.out).toContain(flag);
+    for (const agent of Object.keys(AGENTS)) expect(guide.out).toContain(agent);
   });
 
   test("`contract` prints the Workspace contract byte for byte, without a lock or a Workspace", async () => {
