@@ -2483,6 +2483,29 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(await tree(fixture.project)).toEqual(await tree(fixture.pristine));
   });
 
+  test("a user's empty folder that only this apkit's current install fills is not recorded as created: migrate and remove keep it", async () => {
+    const fixture = await materializeMachine([{ name: "mixed", agents: ["codex"] }]);
+    const folder = fixture.projects.mixed!;
+    // The old engine wrote nothing under .claude here; the user's own .claude folder is empty.
+    const manifest = join(fixture.state, "state", "manifest.json");
+    const data = JSON.parse(await readFile(manifest, "utf8"));
+    data.receipts[0].outputs = data.receipts[0].outputs.filter((o: { path: string }) => !o.path.startsWith(".claude/"));
+    await writeFile(manifest, JSON.stringify(data, null, 2));
+    await rm(join(folder, ".claude"), { recursive: true });
+    await mkdir(join(folder, ".claude"));
+    const install = migrateCli(fixture, folder, "install", "engineering", folder, "--agents", "claude", "--yes", "--workspace", fixture.workspace);
+    expect([install.code, install.err]).toEqual([0, ""]);
+    expect(JSON.parse(await read(folder, ".agents/apkit.json")).folders).not.toContain(".claude");
+
+    const migrated = migrateCli(fixture, fixture.root, "migrate", "--yes", "--overwrite", "--json");
+    expect([migrated.code, migrated.err]).toEqual([0, ""]);
+    expect(JSON.parse(await read(folder, ".agents/apkit.json")).folders ?? []).not.toContain(".claude");
+    expect(existsSync(join(folder, ".claude"))).toBe(true);
+    const removed = migrateCli(fixture, folder, "remove", "--yes");
+    expect([removed.code, removed.err]).toEqual([0, ""]);
+    expect(await exactTree(join(folder, ".claude"))).toEqual({});
+  });
+
   test("removing a folder forgets the old files kept there", async () => {
     const fixture = await materializeMigration();
     await editConfigurations(fixture);

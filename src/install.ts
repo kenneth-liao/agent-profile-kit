@@ -498,12 +498,13 @@ export function isNoteRecords(value: unknown): value is NoteRecords {
 }
 
 /**
- * The folders under `target` that hold files of `owned` (POSIX path → hash) and nothing else but
- * folders, the manifest, and Finder's `.DS_Store`: the folders that removing those files would
- * leave empty. Migration records them as the folders the install created.
+ * The folders of the paths in `from` that hold files of `owned` (POSIX path → hash) and nothing
+ * else but folders, the manifest, and Finder's `.DS_Store`: the folders that removing those files
+ * would leave empty. Migration passes the old engine's outputs as `from` and records the result
+ * as the folders the install created.
  */
-export async function ownedFolders(target: string, owned: Readonly<Record<string, string>>): Promise<string[]> {
-  const candidates = new Set(Object.keys(owned).flatMap((path) => path.split("/").slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join("/"))));
+export async function ownedFolders(target: string, from: readonly string[], owned: Readonly<Record<string, string>>): Promise<string[]> {
+  const candidates = new Set(from.flatMap((path) => path.split("/").slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join("/"))));
   const found: string[] = [];
   for (const dir of candidates) {
     const root = abs(target, dir);
