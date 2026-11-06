@@ -267,29 +267,29 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - [x] **ISC-49:** The CLI shows the Workspace contract on request.
   Probe: find the contract command from `apkit --help` and run it; output that
   differs from the canonical contract fails. bash
-- [ ] **ISC-50:** One command gives a Project a Profile Installation of one
+- [x] **ISC-50:** One command gives a Project a Profile Installation of one
   Profile for several Hosts.
   Probe: packed CLI `install` with two or more Hosts into a linked worktree; a
   selected Host without its outputs, or needing more than one command, fails.
   bash
-- [ ] **ISC-51:** One command removes a Profile Installation for all of its
+- [x] **ISC-51:** One command removes a Profile Installation for all of its
   Hosts.
   Probe: one `remove` after the ISC-50 install; any remaining Host output fails.
   bash
 - [x] **ISC-52:** Every supported Host can receive a Profile Installation.
   Probe: packed CLI `install` for each Host in the Host catalog; any rejected
   supported Host fails. bash
-- [ ] **ISC-53:** **Anti:** Removing a Profile Installation never leaves
+- [x] **ISC-53:** **Anti:** Removing a Profile Installation never leaves
   anything that its install added, including empty folders.
   Probe: compare the Project tree, including empty folders, before install and
   after removal, for each Host and for a several-Host combination; any
   difference fails. bash
-- [ ] **ISC-54:** **Anti:** A Profile Installation in a linked worktree never
+- [x] **ISC-54:** **Anti:** A Profile Installation in a linked worktree never
   changes the main checkout's Profile Installation.
   Probe: install and remove a Profile Installation in a linked worktree of a
   main checkout that has its own installation; any changed main-checkout output
   or owned exclusion entry fails. bash
-- [ ] **ISC-55:** **Anti:** A Profile Installation adds no untracked entry to
+- [x] **ISC-55:** **Anti:** A Profile Installation adds no untracked entry to
   the Project's `git status`, except an instruction file that it creates.
   Probe: compare `git status --porcelain` before and after install for each
   Host, into a repository root and into a subfolder of a repository; any new
@@ -306,7 +306,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: install for several Hosts, `git worktree remove --force`, then
   `remove`; a failed removal, or the installation still listed by
   `status --all`, fails. bash
-- [ ] **ISC-58:** Profile Installations started at the same time in different
+- [x] **ISC-58:** Profile Installations started at the same time in different
   Projects all succeed.
   Probe: start four several-Host `install` runs into separate worktrees at
   once; any failed run or missing installation record fails. bash
@@ -707,9 +707,15 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-40.1: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
 - ISC-40.2: 2026-11-05 manual run @2dd146d: `check --workspace` in a fresh home left the home empty
 - ISC-49: 2026-11-05 manual run @2dd146d: `--help` names `apkit contract`; its output is byte-identical to `docs/guides/workspace-contract.md`
+- ISC-50: `test/cli.test.ts` "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (all six agents; also with `APKIT_CLI=dist/cli.js`)
+- ISC-51: `test/cli.test.ts` "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-52: `test/cli.test.ts` "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install" (all six Hosts)
+- ISC-53: `test/cli.test.ts` "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (each agent and all six together)
+- ISC-54: `test/cli.test.ts` "install and remove in a linked worktree leave the main checkout's installation as it was"
+- ISC-55: `test/cli.test.ts` "for each agent, an install into a repository root and a subfolder adds no untracked entry but the AGENTS.md it creates"; "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (linked worktree root)
 - ISC-56: `test/cli.test.ts` "a symlink that leads outside the Project needs a decision before any write there"
 - ISC-57: `test/cli.test.ts` "remove forgets a deleted linked worktree and drops its block"
+- ISC-58: `test/cli.test.ts` "four several-agent installs into four linked worktrees at once all succeed and are all listed" (all six agents)
 - ISC-59: CI run 42127574355 @2dd146d: tests and Node 22 CLI passed on ubuntu, macOS, and Windows
 - ISC-60: 2026-11-05: published 0.239.1 `package.json` has no dependencies; its bundle imports only `node:` modules
 - ISC-61: 2026-11-05 manual run of `dist/cli.js` @2dd146d on Node 26.12.1 with marker-writing fakes as the whole `PATH`, from `init` to `migrate`: no marker
