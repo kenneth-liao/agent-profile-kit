@@ -74,8 +74,8 @@ is written.
 `loadWorkspace` reads the Workspace once per run into Profiles, Skills, and
 Context Modules, plus two lists of findings: Workspace Errors and warnings
 (ADR-0057). `install` and `update` stop on any Workspace Error; `check` reports
-both lists; `workspace <path>` selects a Workspace even with errors and shows
-them. The format and every rule it enforces are in
+both lists; `init <path>` and `workspace <path>` select a Workspace even with
+errors and show both lists. The format and every rule it enforces are in
 `docs/guides/workspace-contract.md`, which `guide.ts` bundles byte for byte.
 
 `init <path>` creates the folder if needed and adds what is missing:

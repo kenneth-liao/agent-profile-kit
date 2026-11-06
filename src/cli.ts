@@ -294,6 +294,12 @@ function setupHint(config: { readonly notes?: Readonly<Record<string, unknown>> 
   return Object.keys(config.notes ?? {}).length > 0 ? null : `${nextCommand(["setup"])} so your agents know about apkit.`;
 }
 
+function selectionProblems(workspace: Workspace): string[] {
+  return workspace.violations.length === 0
+    ? []
+    : ["It has problems:", ...workspace.violations.map((v) => `  - ${v.message}`), BLOCKED, CONTRACT_POINTER];
+}
+
 function trustLines(needs: readonly TrustNeed[], folder: string): string[] {
   const names = (kind: TrustNeed["untilTrusted"]) => needs.filter((n) => n.untilTrusted === kind).map((n) => AGENTS[n.agent].name);
   const list = (items: readonly string[]) =>
@@ -568,12 +574,25 @@ async function run(argv: readonly string[]): Promise<number> {
       if (path === undefined) throw new UsageError("Name the Workspace folder: `apkit init <path>`.");
       const root = resolve(path);
       const added = await initWorkspace(root);
+      const workspace = await loadWorkspace(root);
       const config = await readConfig();
       await writeConfig({ ...config, workspace: root });
       const next = setupHint(config);
+      const valid = workspace.violations.length === 0;
+      const receipt = valid
+        ? `Workspace ready at ${display(root)}${added.length > 0 ? ` (added ${added.join(", ")})` : ""}.`
+        : `Selected the Workspace at ${display(root)}.`;
       print(
-        `${INTRODUCTION}\nWorkspace ready at ${display(root)}${added.length > 0 ? ` (added ${added.join(", ")})` : ""}.${next ? `\n${next}` : ""}`,
-        { workspace: root, added, next },
+        [INTRODUCTION, receipt, ...selectionProblems(workspace), ...warningLines(workspace), ...(next ? [next] : [])].join("\n"),
+        {
+          workspace: root,
+          added,
+          valid,
+          violations: workspace.violations,
+          warnings: workspace.warnings,
+          next,
+          ...(!valid ? { contract: `${COMMAND} contract` } : {}),
+        },
       );
       return EXIT.ok;
     }
@@ -595,10 +614,7 @@ async function run(argv: readonly string[]): Promise<number> {
       await writeConfig({ ...config, workspace: workspace.root });
       const next = setupHint(config);
       // A Workspace with errors is selected anyway; its report shows what to fix (ISC-48).
-      const problems =
-        workspace.violations.length === 0
-          ? []
-          : ["It has problems:", ...workspace.violations.map((v) => `  - ${v.message}`), BLOCKED, CONTRACT_POINTER];
+      const problems = selectionProblems(workspace);
       const missing = await missingProfiles(workspace, config.installs);
       const lacks =
         missing.length === 0
