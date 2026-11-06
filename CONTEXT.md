@@ -37,7 +37,7 @@ An Agent Host's native discovery, precedence, deduplication, and collision behav
 _Avoid_: apkit-owned resolver, emulated Host inventory
 
 **Profile Installation**:
-One Workspace Profile installed for selected Agent Hosts into one folder: any folder, including a linked worktree. It is generated output with no authority apart from its Workspace source. There is one kind of installation; its Installation Manifest owns it, and `remove` deletes it with the folders its writes left empty (ADR-0056).
+One Workspace Profile installed for selected Agent Hosts into one folder: any folder, including a linked worktree. It is generated output with no authority apart from its Workspace source. There is one kind of installation; its Installation Manifest owns it, and `remove` deletes it with the empty folders the install created; a folder that was there before the install stays (ADR-0056).
 _Avoid_: Canonical source, live link, Temporary Profile Installation, Project Binding
 
 **User-Level Installation**:
@@ -45,7 +45,7 @@ A Profile Installation made with `install --global`: the Profile's Skills go in 
 _Avoid_: Global apply, Host-global second source
 
 **Installation Manifest**:
-The record that owns one Profile Installation: `.agents/apkit.json` in the install folder, or `global.json` in the apkit home for the User-Level Installation. It records the Profile, the Hosts, a content hash of each file apkit wrote, and the hash of each Context Section. apkit replaces or deletes only what still matches its hash; anything else is a Decision (ADR-0056).
+The record that owns one Profile Installation: `.agents/apkit.json` in the install folder, or `global.json` in the apkit home for the User-Level Installation. It records the Profile, the Hosts, a content hash of each file apkit wrote, the hash of each Context Section, and, for a project install, the folders the install created, which are the only folders removal deletes. apkit replaces or deletes only what still matches its hash; anything else is a Decision (ADR-0056).
 _Avoid_: Installation Receipt, Installation State, Project Binding
 
 **Context Section**:
