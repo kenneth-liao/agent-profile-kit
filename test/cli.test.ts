@@ -438,6 +438,21 @@ describe("apkit CLI", () => {
     expect(cli(home, one, "install", "writing", "--agents", "claude", "--yes").code).toBe(0);
   });
 
+  test("init of a folder with errors names in text what it added, as the JSON does", async () => {
+    const home = await tempDir("home");
+    const root = await tempDir("invalid");
+    await writeTree(root, { "profiles/broken.yaml": "skills: [\n" });
+    const json = cli(await tempDir("json-home"), home, "init", root, "--json");
+    const added = JSON.parse(json.out).added as string[];
+    expect(added.length).toBeGreaterThan(0);
+    await rm(root, { recursive: true });
+    await writeTree(root, { "profiles/broken.yaml": "skills: [\n" });
+    const text = cli(home, home, "init", root);
+    expect([text.code, text.err]).toEqual([0, ""]);
+    expect(text.out).toContain("It has problems:");
+    expect(text.out).toContain(`(added ${added.join(", ")})`);
+  });
+
   test("init and workspace select Workspaces with errors and show the complete check report (ISC-48)", async () => {
     for (const missing of ["gone", "another-missing"]) {
       const ws = await makeWorkspace();
@@ -1939,7 +1954,7 @@ describe("several agents in linked worktrees", () => {
     expect(mainStatus()).toEqual([[repo, "unchanged"]]);
 
     const folder = await worktree();
-    expect(cli(home, folder, "install", "engineering", "--agents", "claude,codex,grok", "--yes").code).toBe(0);
+    expect(cli(home, folder, "install", "engineering", "--agents", ALL.join(","), "--yes").code).toBe(0);
     expect(await block(repo, folder)).not.toBeNull();
     expect(await tree(repo)).toEqual(main);
     expect(await block(repo, repo)).toBe(mainBlock);
