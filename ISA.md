@@ -1,7 +1,7 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 44/87
+progress: 49/87
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
 updated: 2026-11-05
@@ -140,7 +140,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: in a fresh home, run bare `apkit`, then run the named command without a
   TTY on a valid fixture Workspace; no such command, or a Workspace that is not
   connected afterwards, fails. bash
-- [ ] **ISC-23:** **Anti:** apkit never selects a Workspace location that the
+- [x] **ISC-23:** **Anti:** apkit never selects a Workspace location that the
   user did not give or confirm.
   Probe: in fresh homes, run every command that creates or selects a Workspace:
   `init` (with and without a path), selecting again, and upgrading legacy Local
@@ -156,20 +156,20 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   command that supplies a path.
   Probe: run the printed command with a valid fixture path supplied; a missing
   or failing command fails. bash
-- [ ] **ISC-26:** A relative Workspace path, including `.`, selects the folder
+- [x] **ISC-26:** A relative Workspace path, including `.`, selects the folder
   the user named.
   Probe: packed CLI `init` with `.` and with a relative path, then `check` from
   a different directory; a Workspace other than the named folder fails. bash
-- [ ] **ISC-27.1:** `init` adds every missing part of the Workspace structure
+- [x] **ISC-27.1:** `init` adds every missing part of the Workspace structure
   that the contract requires.
   Probe: `init` an empty folder and a folder with unrelated files; any required
   part still missing fails. bash
-- [ ] **ISC-27.2:** `init` adds nothing to the chosen folder that the contract
+- [x] **ISC-27.2:** `init` adds nothing to the chosen folder that the contract
   does not require.
   Probe: compare file trees before and after `init`; any added entry that the
   contract does not require fails. bash
 - **ISC-27.3:** [DROPPED — see Decisions 2026-10-30]
-- [ ] **ISC-28:** **Anti:** `init` never changes, moves, or deletes an existing
+- [x] **ISC-28:** **Anti:** `init` never changes, moves, or deletes an existing
   file in the chosen folder.
   Probe: compare existing entries before and after `init` of valid, incomplete,
   and invalid folders that contain unrelated files; any changed, moved, or
@@ -325,7 +325,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: `rg` the engine source for `process.platform` and other OS checks; any
   branch on the operating system fails. bash
 - **ISC-63:** [DROPPED — see Decisions 2026-11-05]
-- [ ] **ISC-64:** `guide` names every command, flag, and Host id that the CLI
+- [x] **ISC-64:** `guide` names every command, flag, and Host id that the CLI
   accepts.
   Probe: compare the CLI parser with the guide text; anything the CLI accepts
   that the guide does not name fails. bash
@@ -343,15 +343,15 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   or leftover output, fails. bash
 - **ISC-68:** [DROPPED — see Decisions 2026-11-05]
 - **ISC-69:** [DROPPED — see Decisions 2026-11-05]
-- [ ] **ISC-70:** `setup` gives each installed Host's user-level instructions a
+- [x] **ISC-70:** `setup` gives each installed Host's user-level instructions a
   note that points to `guide`.
   Probe: in an isolated home with Host folders, run `setup --yes`; a target
   without the note fails. bash
-- [ ] **ISC-71:** **Anti:** `setup` or a global install never hides an existing
+- [x] **ISC-71:** **Anti:** `setup` or a global install never hides an existing
   user-level file from a Host.
   Probe: OpenCode with `~/.claude/CLAUDE.md` present; a new file earlier in its
   lookup order fails. bash
-- [ ] **ISC-72:** **Anti:** Removing the `setup` note or a global install
+- [x] **ISC-72:** **Anti:** Removing the `setup` note or a global install
   restores each user-level file byte for byte.
   Probe: byte-compare each user-level file before install and after removal;
   any difference fails. bash
@@ -695,8 +695,13 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-11: `test/release.test.ts` "failing, skipped, omitted-file and interrupted plain test runs cannot record success"
 - ISC-14: CI run 42127574355 @2dd146d: every job passed within its `timeout-minutes` (10)
 - ISC-22: 2026-11-05 manual run of `dist/cli.js` @2dd146d: bare `apkit` names `apkit workspace [<path>]`; running it in a fresh home selected the fixture
+- ISC-23: `test/cli.test.ts` "only caller-supplied paths select a Workspace, including migration without a legacy selection"
 - ISC-25.1: `test/cli.test.ts` "`init` and `workspace` without a path, and `--help`, write nothing in a fresh home (ISC-25.1)"
 - ISC-25.2: 2026-11-05 manual run @2dd146d: `init` prints `apkit init <path>`; with a path supplied it exits 0 and selects the Workspace
+- ISC-26: `test/cli.test.ts` "init . selects that folder when check runs elsewhere"; "init nested/my workspace selects that folder when check runs elsewhere"
+- ISC-27.1: `test/cli.test.ts` "init completes empty, unrelated-file, and partial folders with only the contract structure"
+- ISC-27.2: `test/cli.test.ts` "init completes empty, unrelated-file, and partial folders with only the contract structure"
+- ISC-28: `test/cli.test.ts` "init preserves every existing entry in valid, incomplete, and invalid folders with unrelated files"
 - ISC-30: 2026-11-05 manual run @2dd146d: `workspace <B>` after `<A>`; Local Configuration names B
 - ISC-31: 2026-11-05 manual run @2dd146d: reconnecting A, then B, kept both Profile Installations in Local Configuration
 - ISC-32: `test/cli.test.ts` "selecting a Workspace that lacks an installed Profile names each affected folder"
@@ -722,8 +727,12 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-60: 2026-11-05: published 0.239.1 `package.json` has no dependencies; its bundle imports only `node:` modules
 - ISC-61: 2026-11-05 manual run of `dist/cli.js` @2dd146d on Node 26.12.1 with marker-writing fakes as the whole `PATH`, from `init` to `migrate`: no marker
 - ISC-62: `test/cli.test.ts` "the bundle imports only node: built-ins and never checks the operating system" with `APKIT_CLI=dist/cli.js`; `rg` of `src/` found no OS check
+- ISC-64: `test/cli.test.ts` "the guide covers every command, flag, and agent the CLI accepts"
 - ISC-66: `test/cli.test.ts` "a changed Codex hook and OpenCode configuration are a decision that names apkit's part, and nothing changes"; "a changed Skill folder and Markdown output are listed with their origin; --yes cannot keep a Skill this apkit installs again"
 - ISC-67: `test/cli.test.ts` "a Project the old engine installed is removed by the current apkit alone: after migrate and remove it matches the Project before the old install"; takeover: "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install"
+- ISC-70: `test/cli.test.ts` "setup --yes gives every detected agent's user-level file a note that points to guide (all six agents)"
+- ISC-71: `test/cli.test.ts` "setup and a global install for OpenCode never create a file earlier in its lookup order than ~/.claude/CLAUDE.md"
+- ISC-72: `test/cli.test.ts` "setup --remove and remove --global restore each agent's user-level file byte for byte, with CRLF and no final newline"
 - ISC-73: `test/cli.test.ts` "install --global puts a Profile's Context in each agent's user-level file, after consent"
 - ISC-74: `test/cli.test.ts` "status names Context installed both at user level and in the Project, and never blocks"
 - ISC-75: `test/cli.test.ts` "user text before and after instruction sections survives install, update, and remove with LF and CRLF"

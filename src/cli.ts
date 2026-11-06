@@ -5,6 +5,7 @@
 import { lstat, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { OPTIONS } from "./command.js";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { display, groupedWarning, nextCommand } from "./output.js";
 import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "./guide.js";
@@ -48,26 +49,6 @@ function parseArgs(argv: readonly string[]): Args {
 }
 
 class UsageError extends Error {}
-
-/**
- * The options each command takes. `--help` works with any command, and `--json` is accepted
- * everywhere (help, guide, and contract print text with it). Anything else is a usage error,
- * before any read or write.
- */
-const OPTIONS: Readonly<Record<string, readonly string[]>> = {
-  help: [],
-  guide: [],
-  contract: [],
-  init: ["--json"],
-  workspace: ["--json"],
-  setup: ["--agents", "--remove", "--yes", "--overwrite", "--json"],
-  check: ["--workspace", "--json"],
-  install: ["--agents", "--global", "--yes", "--overwrite", "--workspace", "--json"],
-  update: ["--all", "--yes", "--overwrite", "--workspace", "--json"],
-  remove: ["--global", "--yes", "--overwrite", "--json"],
-  status: ["--all", "--global", "--workspace", "--json"],
-  migrate: ["--yes", "--overwrite", "--workspace", "--json"],
-};
 
 const KNOWN = new Set(Object.values(OPTIONS).flat());
 

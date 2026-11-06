@@ -94,8 +94,13 @@ install.
 
 ## Commands
 
-All commands are non-interactive. Add --json when you need to parse results.
+All commands are non-interactive. Add --json when you need to parse results;
+help, guide, and contract still print text. Run \`${COMMAND} help\` or add
+--help to any command for usage. On check, install, update, status, or migrate,
+--workspace <path> uses that Workspace for one command without changing the
+selected Workspace.
 
+- Read this guide:                   \`${COMMAND} guide\`
 - Read the Workspace contract:       \`${COMMAND} contract\`
 - Create a Workspace:                \`${COMMAND} init <path>\`
 - Select an existing Workspace:      \`${COMMAND} workspace <path>\`
