@@ -308,6 +308,14 @@ describe("manifest ingestion", () => {
     ["a non-boolean flag", { claudeImport: "yes" }],
     ["user scope in a project folder", { scope: "user" }],
     ["sections in a project folder", { sections: {} }],
+    ["folders that are not a list", { folders: ".claude" }],
+    ["a created folder that leaves the folder", { folders: ["../x"] }],
+    ["a created folder at an absolute path", { folders: ["/etc"] }],
+    ["a created folder on a drive", { folders: ["C:/x"] }],
+    ["a created folder with a backslash", { folders: ["a\\..\\..\\b"] }],
+    ["a created folder with a dot segment", { folders: ["a/./b"] }],
+    ["an empty created folder path", { folders: [""] }],
+    ["a created folder that is not a string", { folders: [1] }],
   ] as const) {
     test(`a project manifest with ${label} is refused`, async () => {
       const target = await tempDir("target");
@@ -315,6 +323,16 @@ describe("manifest ingestion", () => {
       await expect(readManifest(target)).rejects.toThrow("is not a manifest this version understands");
     });
   }
+
+  test("a project manifest's created folders are read back; the global manifest may not have any", async () => {
+    const target = await tempDir("target");
+    await writeTree(target, { ".agents/apkit.json": JSON.stringify({ ...valid, folders: [".claude", ".claude/skills"] }) });
+    expect((await readManifest(target))?.folders).toEqual([".claude", ".claude/skills"]);
+    const dir = await tempDir("home");
+    const path = join(dir, "global.json");
+    await writeFile(path, JSON.stringify({ ...valid, scope: "user", folders: [".claude"] }));
+    await expect(readManifestAt(path, path, "user")).rejects.toThrow("is not a manifest this version understands");
+  });
 
   test("the global manifest must be user scope, with absolute section paths", async () => {
     const dir = await tempDir("home");

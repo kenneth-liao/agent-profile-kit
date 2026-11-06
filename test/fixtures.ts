@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, readlink, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 
@@ -48,4 +48,32 @@ export async function snapshot(root: string): Promise<Record<string, string>> {
     files[relative(root, full).split(sep).join("/")] = await readFile(full, "utf8");
   }
   return files;
+}
+
+export interface ExactTreeOptions {
+  /** Leaves out the entry at this POSIX path (its descendants are still visited). */
+  skip?: (path: string) => boolean;
+  /** Rewrites a file's contents (exact bytes as latin1) before recording them. */
+  rewrite?: (text: string) => string;
+}
+
+/**
+ * The whole tree under root, to show exactly what changed: every file (POSIX path → exact bytes as
+ * latin1), every folder including empty ones (`path/` → ""), and every link without following it
+ * (`path@` → its target).
+ */
+export async function exactTree(root: string, options: ExactTreeOptions = {}): Promise<Record<string, string>> {
+  const tree: Record<string, string> = {};
+  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+    const full = join(entry.parentPath, entry.name);
+    const path = relative(root, full).split(sep).join("/");
+    if (options.skip?.(path)) continue;
+    if (entry.isSymbolicLink()) tree[`${path}@`] = await readlink(full);
+    else if (entry.isDirectory()) tree[`${path}/`] = "";
+    else if (entry.isFile()) {
+      const text = (await readFile(full)).toString("latin1");
+      tree[path] = options.rewrite ? options.rewrite(text) : text;
+    } else throw new Error(`Unexpected entry: ${path}`);
+  }
+  return tree;
 }

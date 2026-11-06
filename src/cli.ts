@@ -5,6 +5,7 @@
 import { lstat, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { OPTIONS } from "./command.js";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { display, groupedWarning, nextCommand } from "./output.js";
 import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "./guide.js";
@@ -48,26 +49,6 @@ function parseArgs(argv: readonly string[]): Args {
 }
 
 class UsageError extends Error {}
-
-/**
- * The options each command takes. `--help` works with any command, and `--json` is accepted
- * everywhere (help, guide, and contract print text with it). Anything else is a usage error,
- * before any read or write.
- */
-const OPTIONS: Readonly<Record<string, readonly string[]>> = {
-  help: [],
-  guide: [],
-  contract: [],
-  init: ["--json"],
-  workspace: ["--json"],
-  setup: ["--agents", "--remove", "--yes", "--overwrite", "--json"],
-  check: ["--workspace", "--json"],
-  install: ["--agents", "--global", "--yes", "--overwrite", "--workspace", "--json"],
-  update: ["--all", "--yes", "--overwrite", "--workspace", "--json"],
-  remove: ["--global", "--yes", "--overwrite", "--json"],
-  status: ["--all", "--global", "--workspace", "--json"],
-  migrate: ["--yes", "--overwrite", "--workspace", "--json"],
-};
 
 const KNOWN = new Set(Object.values(OPTIONS).flat());
 
@@ -311,6 +292,12 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
 /** Until setup has run, init and workspace name it as the next step: agents follow command output. */
 function setupHint(config: { readonly notes?: Readonly<Record<string, unknown>> }): string | null {
   return Object.keys(config.notes ?? {}).length > 0 ? null : `${nextCommand(["setup"])} so your agents know about apkit.`;
+}
+
+function selectionProblems(workspace: Workspace): string[] {
+  return workspace.violations.length === 0
+    ? []
+    : ["It has problems:", ...workspace.violations.map((v) => `  - ${v.message}`), BLOCKED, CONTRACT_POINTER];
 }
 
 function trustLines(needs: readonly TrustNeed[], folder: string): string[] {
@@ -587,12 +574,24 @@ async function run(argv: readonly string[]): Promise<number> {
       if (path === undefined) throw new UsageError("Name the Workspace folder: `apkit init <path>`.");
       const root = resolve(path);
       const added = await initWorkspace(root);
+      const workspace = await loadWorkspace(root);
       const config = await readConfig();
       await writeConfig({ ...config, workspace: root });
       const next = setupHint(config);
+      const valid = workspace.violations.length === 0;
+      const additions = added.length > 0 ? ` (added ${added.join(", ")})` : "";
+      const receipt = valid ? `Workspace ready at ${display(root)}${additions}.` : `Selected the Workspace at ${display(root)}${additions}.`;
       print(
-        `${INTRODUCTION}\nWorkspace ready at ${display(root)}${added.length > 0 ? ` (added ${added.join(", ")})` : ""}.${next ? `\n${next}` : ""}`,
-        { workspace: root, added, next },
+        [INTRODUCTION, receipt, ...selectionProblems(workspace), ...warningLines(workspace), ...(next ? [next] : [])].join("\n"),
+        {
+          workspace: root,
+          added,
+          valid,
+          violations: workspace.violations,
+          warnings: workspace.warnings,
+          next,
+          ...(!valid ? { contract: `${COMMAND} contract` } : {}),
+        },
       );
       return EXIT.ok;
     }
@@ -614,10 +613,7 @@ async function run(argv: readonly string[]): Promise<number> {
       await writeConfig({ ...config, workspace: workspace.root });
       const next = setupHint(config);
       // A Workspace with errors is selected anyway; its report shows what to fix (ISC-48).
-      const problems =
-        workspace.violations.length === 0
-          ? []
-          : ["It has problems:", ...workspace.violations.map((v) => `  - ${v.message}`), BLOCKED, CONTRACT_POINTER];
+      const problems = selectionProblems(workspace);
       const missing = await missingProfiles(workspace, config.installs);
       const lacks =
         missing.length === 0

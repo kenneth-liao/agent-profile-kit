@@ -14,6 +14,7 @@ import {
   atomicWrite,
   hash as contentHash,
   execute,
+  ownedFolders,
   plan,
   readManifest,
   unresolved,
@@ -788,11 +789,19 @@ async function migrateProject(workspace: Workspace | null, receipt: OldReceipt, 
   // The old outputs join any install this engine already made here. A changed output the user
   // did not keep is handed over whole, so a decision about it is not listed twice.
   const owned = Object.assign({}, ...states.map(({ state }) => ("files" in state ? state.files : undefined) ?? {}), ...changes.map((change) => change.files ?? {})) as Record<string, string>;
+  const files = { ...owned, ...current?.files };
+  // The folders of the old engine's outputs that hold only apkit's files count as created by this
+  // install, so removing it later deletes them as a fresh install's removal would. Only the old
+  // outputs name candidates: a folder only the current install fills keeps its own record, which
+  // leaves out a folder the user had before. An install without the record keeps none.
+  const fromOld = await ownedFolders(folder, Object.keys(owned), files);
+  const folders = current === null || current.folders !== undefined ? [...new Set([...(current?.folders ?? []), ...fromOld])].sort() : undefined;
   const previous: Manifest = {
     ...(current ?? { schema: 1, block: null, createdAgentsMd: false, claudeImport: false }),
     profile: receipt.profile,
     agents: receipt.agents,
-    files: { ...owned, ...current?.files },
+    files,
+    ...(folders === undefined ? {} : { folders }),
   };
   const outcomes = await outcomeBuilder(project, receipt, changes);
   if (stopsForChanges(changes, planOnly)) {

@@ -74,8 +74,8 @@ is written.
 `loadWorkspace` reads the Workspace once per run into Profiles, Skills, and
 Context Modules, plus two lists of findings: Workspace Errors and warnings
 (ADR-0057). `install` and `update` stop on any Workspace Error; `check` reports
-both lists; `workspace <path>` selects a Workspace even with errors and shows
-them. The format and every rule it enforces are in
+both lists; `init <path>` and `workspace <path>` select a Workspace even with
+errors and show both lists. The format and every rule it enforces are in
 `docs/guides/workspace-contract.md`, which `guide.ts` bundles byte for byte.
 
 `init <path>` creates the folder if needed and adds what is missing:
@@ -108,7 +108,8 @@ and the next manifest. `execute` runs only after every Decision is settled.
 - **Installation Manifest.** `.agents/apkit.json` (schema 1) records the
   Profile, the Hosts, a hash of each written file, the hash of the Context
   Section, whether apkit created `AGENTS.md`, whether it added the `CLAUDE.md`
-  line, and the installed Context Module IDs. Hashes ignore CRLF versus LF.
+  line, the installed Context Module IDs, and the Project folders the install
+  created. Hashes ignore CRLF versus LF.
   Every field is checked when read, so planning never trusts a path or record
   it did not write.
 - **Decisions.** `consent` (an edit to `AGENTS.md`, `CLAUDE.md`, or a
@@ -126,8 +127,13 @@ and the next manifest. `execute` runs only after every Decision is settled.
   file, and each removal is the exact inverse of its insertion.
 - **Writes.** Each file is written to a temp file and renamed into place,
   with short retries for Windows. The manifest is written last.
-- **Removal.** Deleting a file prunes the folders it leaves empty, up to the
-  install folder. Pruning stops at a link, so a Windows junction is never
+- **Removal.** Removal deletes the folders the install created when they are
+  empty, deepest first; a folder that was there before the install stays.
+  `update` keeps the record current: it adds each folder it creates and drops
+  each that no longer holds a file of the install. A manifest without the
+  record (from an earlier apkit) prunes every folder a deletion leaves empty, up
+  to the install folder. `migrate` records the folders that hold only old
+  outputs. Pruning never removes a link, so a Windows junction is never
   removed. If apkit created `AGENTS.md` and only its section was in it, the
   file is deleted.
 - **Two installs in the home folder.** The home folder can hold a project
