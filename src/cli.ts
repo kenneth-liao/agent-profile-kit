@@ -579,9 +579,8 @@ async function run(argv: readonly string[]): Promise<number> {
       await writeConfig({ ...config, workspace: root });
       const next = setupHint(config);
       const valid = workspace.violations.length === 0;
-      const receipt = valid
-        ? `Workspace ready at ${display(root)}${added.length > 0 ? ` (added ${added.join(", ")})` : ""}.`
-        : `Selected the Workspace at ${display(root)}.`;
+      const additions = added.length > 0 ? ` (added ${added.join(", ")})` : "";
+      const receipt = valid ? `Workspace ready at ${display(root)}${additions}.` : `Selected the Workspace at ${display(root)}${additions}.`;
       print(
         [INTRODUCTION, receipt, ...selectionProblems(workspace), ...warningLines(workspace), ...(next ? [next] : [])].join("\n"),
         {
