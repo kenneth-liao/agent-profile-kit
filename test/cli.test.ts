@@ -1,13 +1,14 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { hash } from "../src/install.js";
 import { AGENTS } from "../src/render.js";
 import { loadWorkspace, type Violation } from "../src/workspace.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { CASE_SENSITIVE_CONTEXT, ERROR_KINDS } from "./validation-cases.js";
 import { makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
 import { materializeMachine, materializeMigration, type MigrationFixture } from "./migration.js";
 
@@ -321,6 +322,7 @@ describe("apkit CLI", () => {
     await writeTree(outside, { "linked/SKILL.md": SKILL("linked") });
     await writeTree(ws, {
       "context/notes.txt": "x",
+      "context/empty.md": "",
       "skills/README.md": "x",
       "profiles/notes.txt": "x",
       "profiles/team/nested.yaml": "skills: [summarize]\n",
@@ -332,7 +334,7 @@ describe("apkit CLI", () => {
     });
     // A junction on Windows needs no privilege; elsewhere it is a plain folder symlink.
     await symlink(join(outside, "linked"), join(ws, "skills", "linked"), "junction");
-    const skipped = ["context/notes.txt", "skills/README.md", "profiles/notes.txt", "profiles/team/nested.yaml", "skills/linked"];
+    const skipped = ["context/empty.md", "context/notes.txt", "skills/README.md", "profiles/notes.txt", "profiles/team/nested.yaml", "skills/linked"];
 
     const check = cli(home, home, "check", "--workspace", ws);
     expect(check.code).toBe(0);
@@ -342,6 +344,16 @@ describe("apkit CLI", () => {
     expect(json.valid).toBe(true);
     expect(json.violations).toEqual([]);
     expect(json.warnings.map((w: { path: string }) => w.path).sort()).toEqual([...skipped, "profiles/draft.yaml"].sort());
+    const warnings = [
+      ["empty-content", "context/empty.md"],
+      ["stray-context-file", "context/notes.txt"],
+      ["stray-skill-file", "skills/README.md"],
+      ["stray-profile-file", "profiles/notes.txt"],
+      ["profile-in-subfolder", "profiles/team/nested.yaml"],
+      ["symlink", "skills/linked"],
+      ["profile-without-artifacts", "profiles/draft.yaml"],
+    ].sort();
+    expect(json.warnings.map((w: Violation) => [w.code, w.path]).sort()).toEqual(warnings);
 
     const folder = await tempDir("f");
     const install = cli(home, folder, "install", "old", "--workspace", ws, "--agents", "claude", "--yes");
@@ -350,7 +362,7 @@ describe("apkit CLI", () => {
     expect(await read(folder, ".claude/skills/old/agent-profile-kit.yaml")).toBe("dependencies: []\n");
     const again = JSON.parse(cli(home, folder, "install", "old", "--workspace", ws, "--agents", "claude", "--json").out);
     expect(again.result).toBe("unchanged");
-    expect(again.warnings.length).toBe(skipped.length + 1);
+    expect(again.warnings.map((w: Violation) => [w.code, w.path]).sort()).toEqual(warnings);
 
     for (const command of ["update", "status"]) {
       const result = cli(home, folder, command, "--all", "--workspace", ws);
@@ -377,16 +389,25 @@ describe("apkit CLI", () => {
     expect(cli(home, one, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
     expect(cli(home, two, "install", "writing", "--agents", "codex", "--yes").code).toBe(0);
 
-    // Several error kinds at once, and one warning.
+    // Manifest, Skill, and Profile errors, including all references in a Profile with another error.
     await writeTree(ws, {
-      "profiles/engineering.yaml": "context:\n  - communication\nskills:\n  - summarize\n  - gone\n",
+      "apkit-workspace.yaml": "schema_version: abc\n",
+      "profiles/engineering.yaml": "id: engineering\ncontext:\n  - communication\n  - absent\nskills:\n  - summarize\n  - gone\n",
       "profiles/broken.yaml": "skills: [\n",
       "profiles/Bad_Name.yaml": "skills: []\n",
       "skills/group/review/SKILL.md": "no frontmatter\n",
       "skills/README.md": "x",
     });
     const check = JSON.parse(cli(home, one, "check", "--json").out);
-    expect(check.violations.length).toBeGreaterThanOrEqual(4);
+    expect(check.violations.map((v: Violation) => [v.code, v.path]).sort()).toEqual([
+      ["workspace-manifest", "apkit-workspace.yaml"],
+      ["invalid-frontmatter", "skills/group/review/SKILL.md"],
+      ["profile-file-name", "profiles/Bad_Name.yaml"],
+      ["invalid-yaml", "profiles/broken.yaml"],
+      ["invalid-profile", "profiles/engineering.yaml"],
+      ["missing-context-reference", "profiles/engineering.yaml"],
+      ["missing-skill-reference", "profiles/engineering.yaml"],
+    ].sort());
 
     const select = cli(home, one, "workspace", ws);
     expect(select.code).toBe(0);
@@ -411,6 +432,7 @@ describe("apkit CLI", () => {
 
     // Once the errors are fixed, the warning alone blocks nothing.
     await writeTree(ws, {
+      "apkit-workspace.yaml": "schema_version: 1\n",
       "profiles/engineering.yaml": "context:\n  - communication\nskills:\n  - summarize\n",
       "profiles/broken.yaml": "skills: []\n",
       "skills/group/review/SKILL.md": SKILL("review"),
@@ -2628,4 +2650,83 @@ describe("the migration notice (SRC-10)", () => {
     expect(JSON.parse(cli(home, home, "status", "--all", "--workspace", ws, "--json").out)).toEqual({ results: [] });
     expect(JSON.parse(cli(home, home, "update", "--all", "--workspace", ws, "--json").out)).toEqual({ results: [] });
   });
+});
+
+/** Validation must preserve bytes, links, and even empty folders, including apkit's own state. */
+async function validationTree(root: string): Promise<Record<string, string>> {
+  const tree: Record<string, string> = {};
+  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+    const full = join(entry.parentPath, entry.name);
+    const path = relative(root, full).split(sep).join("/");
+    if (entry.isDirectory()) tree[`${path}/`] = "";
+    else if (entry.isSymbolicLink()) tree[`${path}@`] = await readlink(full);
+    else if (entry.isFile()) tree[path] = (await readFile(full)).toString("base64");
+  }
+  return tree;
+}
+
+describe("validation reports for every error kind", () => {
+  for (const [code, { files, paths, fix, links = {} }] of Object.entries(ERROR_KINDS)) {
+    describe(code, () => {
+      test.skipIf(code === "context-id-case-collision" && !CASE_SENSITIVE_CONTEXT)("check names every offending path, its fix, and the contract", async () => {
+        const home = await tempDir("home");
+        const ws = await tempDir("ws");
+        await writeTree(ws, files);
+        for (const [link, to] of Object.entries(links)) {
+          await symlink(join(ws, ...to.split("/")), join(ws, ...link.split("/")), "junction");
+        }
+        const check = cli(home, home, "check", "--workspace", ws);
+        expect(check.code).toBe(1);
+        for (const path of paths) expect(check.out).toContain(path);
+        expect(check.out).toContain(fix);
+        expect(check.out).toContain(`Next: \`${COMMAND} contract\``);
+        const json = cli(home, home, "check", "--workspace", ws, "--json");
+        expect(json.code).toBe(1);
+        const report = JSON.parse(json.out);
+        expect(report.valid).toBe(false);
+        expect(report.violations.map((v: Violation) => [v.code, v.path])).toEqual(paths.map((path) => [code, path]));
+        for (const violation of report.violations) expect(violation.message).toContain(fix);
+        expect(report.contract).toBe(`${COMMAND} contract`);
+      });
+
+      test.skipIf(code === "context-id-case-collision" && !CASE_SENSITIVE_CONTEXT)("install and update leave every file and folder unchanged", async () => {
+        const home = await tempDir("home");
+        const ws = await makeWorkspace();
+        const installed = await tempDir("installed");
+        const fresh = await tempDir("fresh");
+        for (const folder of [installed, fresh]) {
+          expect(spawnSync("git", ["init", "-q"], { cwd: folder }).status).toBe(0);
+          await mkdir(join(folder, "keep-empty"));
+        }
+        const agents = Object.keys(AGENTS).join(",");
+        // Connect while valid: missing/old manifests are produced in an already connected Workspace.
+        expect(cli(home, installed, "workspace", ws).code).toBe(0);
+        expect(cli(home, installed, "install", "engineering", "--agents", agents, "--yes").code).toBe(0);
+        expect(await read(installed, "AGENTS.md")).toContain("Be concise.");
+        await writeTree(ws, { "context/communication.md": "Pending update that must not be installed.\n" });
+        if (!("apkit-workspace.yaml" in files)) await rm(join(ws, "apkit-workspace.yaml"));
+        await writeTree(ws, files);
+        for (const [link, to] of Object.entries(links)) {
+          await symlink(join(ws, ...to.split("/")), join(ws, ...link.split("/")), "junction");
+        }
+        const check = cli(home, installed, "check", "--json");
+        expect(check.code).toBe(1);
+        expect(JSON.parse(check.out).violations.map((v: Violation) => [v.code, v.path])).toEqual(paths.map((path) => [code, path]));
+        const roots = [ws, installed, fresh, home];
+        const before = await Promise.all(roots.map(validationTree));
+        const install = cli(home, fresh, "install", "engineering", "--agents", agents, "--yes");
+        expect(install.code).toBe(1);
+        for (const path of paths) expect(install.err).toContain(path);
+        expect(install.err).toContain(fix);
+        expect(install.err).toContain(`Next: \`${COMMAND} contract\``);
+        expect(await Promise.all(roots.map(validationTree))).toEqual(before);
+        const update = cli(home, installed, "update", "--all", "--yes");
+        expect(update.code).toBe(1);
+        for (const path of paths) expect(update.err).toContain(path);
+        expect(update.err).toContain(fix);
+        expect(update.err).toContain(`Next: \`${COMMAND} contract\``);
+        expect(await Promise.all(roots.map(validationTree))).toEqual(before);
+      });
+    });
+  }
 });
