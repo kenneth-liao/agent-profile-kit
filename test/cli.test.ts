@@ -3437,14 +3437,22 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
     const env: Record<string, string | undefined> = { ...process.env, APKIT_EXEC_MARKER: markers };
     for (const key of Object.keys(env)) if (key.toUpperCase() === "PATH" || key.toUpperCase() === "PATHEXT") delete env[key];
     const isolated = { ...env, PATH: bin, PATHEXT: ".COM;.EXE;.BAT;.CMD" };
-    // Positive control: each fake must resolve by name and really write its own marker.
+    // Positive control: each fake must really write its own marker, run by its full path and resolved by name.
+    // On Windows the harness runs fakes through the real cmd.exe, which runs itself for `cmd`, so the
+    // by-name run skips only that interpreter; its fake is still proven by full path.
+    const comspec = process.env.ComSpec ?? "C:\\Windows\\System32\\cmd.exe";
+    const run = (command: string) => process.platform === "win32"
+      ? spawnSync(comspec, ["/d", "/s", "/c", `""${command}""`], { env: isolated, encoding: "utf8", windowsVerbatimArguments: true })
+      : spawnSync(command, [], { env: isolated, encoding: "utf8" });
     for (const name of names) {
-      const result = process.platform === "win32"
-        ? spawnSync(process.env.ComSpec ?? "C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", name], { env: isolated, encoding: "utf8" })
-        : spawnSync(name, [], { env: isolated, encoding: "utf8" });
-      expect([result.status, result.error, result.stderr]).toEqual([0, undefined, ""]);
-      expect((await readFile(join(markers, name), "utf8")).trim()).toBe("started");
-      await rm(join(markers, name));
+      const commands = [join(bin, process.platform === "win32" ? `${name}.cmd` : name)];
+      if (!(process.platform === "win32" && name === "cmd")) commands.push(name);
+      for (const command of commands) {
+        const result = run(command);
+        expect([command, result.status, result.error, result.stderr]).toEqual([command, 0, undefined, ""]);
+        expect((await readFile(join(markers, name), "utf8")).trim()).toBe("started");
+        await rm(join(markers, name));
+      }
     }
     return { bin, markers };
   }
