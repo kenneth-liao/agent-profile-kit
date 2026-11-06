@@ -1781,6 +1781,18 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(await readFile(join(`${fixture.state}.migrated`, "state", "manifest.json"), "utf8")).toBe(before);
   });
 
+  test("a Project the old engine installed is removed by the current apkit alone: after migrate and remove it matches the Project before the old install", async () => {
+    const fixture = await materializeMigration();
+    const migrated = migrateCli(fixture, fixture.project, "migrate", "--yes");
+    expect([migrated.code, migrated.err]).toEqual([0, ""]);
+    const removed = migrateCli(fixture, fixture.project, "remove", "--yes");
+    expect([removed.code, removed.err]).toEqual([0, ""]);
+    // Every file and empty folder, and the Git exclude file without the old block.
+    expect(await tree(fixture.project)).toEqual(await tree(fixture.pristine));
+    const config = JSON.parse(await readFile(join(fixture.root, "apkit", "config.json"), "utf8"));
+    expect(config.installs ?? []).not.toContain(fixture.project);
+  });
+
   test("a folder that holds only old output and a macOS .DS_Store file is removed", async () => {
     const fixture = await materializeMigration();
     await writeFile(join(fixture.project, ".agent-profile-kit", ".DS_Store"), "Finder");
