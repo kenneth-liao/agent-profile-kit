@@ -15,9 +15,9 @@ import tempfile
 retained = Path(__file__).resolve().parent
 checkouts = Path(sys.argv[1]).resolve()
 for version, fixture in [
-    ("0.16.0", "compat-0.16.0/minimal"),
-    ("0.16.0", "compat-0.16.0/partial"),
-    ("0.84.0", "compat-0.84.0"),
+    ("0.20.0", "compat-0.20.0/minimal"),
+    ("0.20.0", "compat-0.20.0/partial"),
+    ("0.95.0", "compat-0.95.0"),
 ]:
     with tempfile.TemporaryDirectory(prefix="apkit-historical-") as home:
         app = Path(home) / ".agents" / "agent-profile-kit"
@@ -26,7 +26,7 @@ for version, fixture in [
         shutil.copytree(retained / fixture, workspace)
         config = (
             "schema_version: 1\nbindings: []\n"
-            if version == "0.16.0"
+            if version == "0.20.0"
             else f"schema_version: 2\nworkspace: '{workspace.as_posix()}'\nbindings: []\n"
         )
         (app / "config.yaml").write_text(config)

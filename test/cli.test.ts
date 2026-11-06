@@ -1,7 +1,8 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { chmod, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { OPTIONS } from "../src/command.js";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
@@ -10,7 +11,7 @@ import { AGENTS } from "../src/render.js";
 import { loadWorkspace, type Violation } from "../src/workspace.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { CASE_SENSITIVE_CONTEXT, ERROR_KINDS } from "./validation-cases.js";
-import { makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
+import { exactTree, makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
 import { materializeMachine, materializeMigration, type MigrationFixture } from "./migration.js";
 
 // Journeys run several commands, each a new process: on Node one took 7.4 s, past Bun's 5 s default.
@@ -86,18 +87,9 @@ const USER_FILES = [
   ".gemini/AGENTS.md",
 ];
 
-/** Every file (POSIX path → exact bytes) and folder (path ending in `/`) under home, without apkit's own config files (APKIT_HOME is home here). */
-async function homeSnapshot(home: string): Promise<Record<string, string>> {
-  const files: Record<string, string> = {};
-  for (const entry of await readdir(home, { recursive: true, withFileTypes: true })) {
-    const path = relative(home, join(entry.parentPath, entry.name)).split(sep).join("/");
-    // Folders count too: a removal must not leave behind a folder it created.
-    if (entry.isDirectory()) files[`${path}/`] = "";
-    if (!entry.isFile()) continue;
-    if (path === "config.json" || path === "global.json") continue;
-    files[path] = (await readFile(join(home, path))).toString("latin1");
-  }
-  return files;
+/** `exactTree` of home without apkit's own config files (APKIT_HOME is home here). Folders count too: a removal must not leave behind a folder it created. */
+function homeSnapshot(home: string): Promise<Record<string, string>> {
+  return exactTree(home, { skip: (path) => path === "config.json" || path === "global.json" });
 }
 
 describe("apkit CLI", () => {
@@ -1801,20 +1793,9 @@ describe("several agents in linked worktrees", () => {
     return { home, repo, worktree };
   }
 
-  /** Every file (with its text) and every empty folder under `folder`, without Git's own `.git` entry. */
-  async function tree(folder: string): Promise<Record<string, string>> {
-    const found: Record<string, string> = {};
-    for (const entry of await readdir(folder, { recursive: true, withFileTypes: true })) {
-      const full = join(entry.parentPath, entry.name);
-      const path = relative(folder, full).split(sep).join("/");
-      if (path === ".git" || path.startsWith(".git/")) continue;
-      if (entry.isDirectory()) {
-        if ((await readdir(full)).length === 0) found[`${path}/`] = "(empty folder)";
-      } else {
-        found[path] = await readFile(full, "utf8");
-      }
-    }
-    return found;
+  /** `exactTree` of `folder` without Git's own `.git` entry. */
+  function tree(folder: string): Promise<Record<string, string>> {
+    return exactTree(folder, { skip: (path) => path === ".git" || path.startsWith(".git/") });
   }
 
   /** The exclusion block apkit owns for `folder` in the repository's exclude file, or null. */
@@ -1975,17 +1956,7 @@ describe("several agents in linked worktrees", () => {
 });
 
 describe("edit consent and instruction-file ownership", () => {
-  /** Exact file bytes and directory entries, including empty folders. */
-  async function tree(root: string): Promise<Record<string, string>> {
-    const entries: Record<string, string> = {};
-    for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
-      const full = join(entry.parentPath, entry.name);
-      const path = relative(root, full).split(sep).join("/");
-      if (entry.isDirectory()) entries[`${path}/`] = "";
-      else if (entry.isFile()) entries[path] = (await readFile(full)).toString("latin1");
-    }
-    return entries;
-  }
+  const tree = (root: string) => exactTree(root);
 
   test("install, update, and remove preserve changed generated files until --overwrite", async () => {
     for (const operation of ["install", "update", "remove"] as const) {
@@ -2109,11 +2080,18 @@ describe("edit consent and instruction-file ownership", () => {
 });
 
 /** The Workspaces kept from earlier releases that changed the contract (test/retained/README.md). */
-const RETAINED = {
-  "0.204.0 source": join(import.meta.dir, "retained", "compat-0.204.0", "workspace-source"),
-  "0.204.0 realistic": join(import.meta.dir, "retained", "compat-0.204.0", "workspace-realistic"),
-  "0.237.0": join(import.meta.dir, "retained", "compat-0.237.0"),
-};
+const RETAINED_FIXTURES = {
+  "0.20.0 minimal": { source: "compat-0.20.0/minimal", counts: { "workspace-old-manifest": 1 } },
+  "0.20.0 partial": { source: "compat-0.20.0/partial", counts: { "workspace-old-manifest": 1, "invalid-profile": 1 } },
+  "0.95.0": { source: "compat-0.95.0", counts: { "workspace-old-manifest": 1, "invalid-profile": 1, "missing-context-reference": 1 } },
+  "0.204.0 source": { source: "compat-0.204.0/workspace-source", counts: { "workspace-old-manifest": 1, "invalid-profile": 2, "missing-context-reference": 1 } },
+  "0.204.0 realistic": { source: "compat-0.204.0/workspace-realistic", counts: { "workspace-old-manifest": 1, "invalid-profile": 5, "missing-context-reference": 29 } },
+  "0.237.0": { source: "compat-0.237.0", counts: { "workspace-old-manifest": 1 } },
+} as const;
+/** Each retained Workspace's folder, by release. */
+const RETAINED = Object.fromEntries(
+  Object.entries(RETAINED_FIXTURES).map(([release, { source }]) => [release, join(import.meta.dir, "retained", ...source.split("/"))]),
+) as Record<keyof typeof RETAINED_FIXTURES, string>;
 
 /** Makes exactly the change each error names, reading it only from the error's path and message. */
 async function applyNamedChanges(root: string, errors: readonly Violation[]): Promise<void> {
@@ -2197,6 +2175,40 @@ describe("Workspaces valid in an earlier release", () => {
   }, SLOW);
 });
 
+describe("retained Workspace CLI compatibility (ISC-46)", () => {
+  const SLOW = 60_000;
+  for (const [release, fixture] of Object.entries(RETAINED_FIXTURES)) {
+    test(`${release}: one CLI check names every needed change, and those changes suffice`, async () => {
+      const home = await tempDir("home");
+      const root = await tempDir("retained-cli");
+      await cp(RETAINED[release as keyof typeof RETAINED_FIXTURES], root, { recursive: true });
+      // An empty user-owned folder must survive validation and every named repair.
+      await mkdir(join(root, "empty-folder"));
+      const before = await exactTree(root);
+      const first = cli(home, root, "check", "--workspace", root, "--json");
+      expect([first.code, first.err]).toEqual([1, ""]);
+      const report = JSON.parse(first.out) as { valid: boolean; violations: Violation[]; contract: string };
+      expect(report.valid).toBe(false);
+      expect(report.contract).toBe("apkit contract");
+      const counts: Record<string, number> = {};
+      for (const error of report.violations) {
+        counts[error.code] = (counts[error.code] ?? 0) + 1;
+        expect(Object.keys(before)).toContain(error.path);
+      }
+      expect(counts).toEqual(fixture.counts);
+      expect(await exactTree(root)).toEqual(before);
+      await applyNamedChanges(root, report.violations);
+      const repaired = await exactTree(root);
+      expect(repaired["empty-folder/"]).toBe("");
+      const second = cli(home, root, "check", "--workspace", root, "--json");
+      expect([second.code, second.err]).toEqual([0, ""]);
+      expect(JSON.parse(second.out).violations).toEqual([]);
+      expect(JSON.parse(second.out).valid).toBe(true);
+      expect(await exactTree(root)).toEqual(repaired);
+    }, release.includes("realistic") ? SLOW : undefined);
+  }
+});
+
 describe("migrate from the old engine (0.238.0 receipts)", () => {
   const ALL = "antigravity,claude,codex,grok,opencode,pi";
   /** The old state folder and its backup as text names them, with native separators. */
@@ -2209,20 +2221,12 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     return cliWithEnv({ APKIT_HOME: join(fixture.root, "apkit"), BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, fixture.home, cwd, ...args);
   }
 
-  /** Every file (with its text) and every empty folder under `folder`, skipping `.git` except its exclude file, with `folder` written as `<folder>`. */
-  async function tree(folder: string): Promise<Record<string, string>> {
-    const found: Record<string, string> = {};
-    for (const entry of await readdir(folder, { recursive: true, withFileTypes: true })) {
-      const full = join(entry.parentPath, entry.name);
-      const path = relative(folder, full).split(sep).join("/");
-      if (path === ".git" || (path.startsWith(".git/") && path !== ".git/info/exclude")) continue;
-      if (entry.isDirectory()) {
-        if ((await readdir(full)).length === 0) found[`${path}/`] = "(empty folder)";
-      } else {
-        found[path] = (await readFile(full, "utf8")).replaceAll(folder, "<folder>");
-      }
-    }
-    return found;
+  /** `exactTree` of `folder`, skipping `.git` except its exclude file, with `folder` written as `<folder>`. */
+  function tree(folder: string): Promise<Record<string, string>> {
+    return exactTree(folder, {
+      skip: (path) => (path === ".git" || path.startsWith(".git/")) && path !== ".git/info/exclude",
+      rewrite: (text) => text.replaceAll(folder, "<folder>"),
+    });
   }
 
   test("deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install", async () => {
@@ -3132,18 +3136,6 @@ describe("the migration notice (SRC-10)", () => {
   });
 });
 
-/** Validation must preserve bytes, links, and even empty folders, including apkit's own state. */
-async function validationTree(root: string): Promise<Record<string, string>> {
-  const tree: Record<string, string> = {};
-  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
-    const full = join(entry.parentPath, entry.name);
-    const path = relative(root, full).split(sep).join("/");
-    if (entry.isDirectory()) tree[`${path}/`] = "";
-    else if (entry.isSymbolicLink()) tree[`${path}@`] = await readlink(full);
-    else if (entry.isFile()) tree[path] = (await readFile(full)).toString("base64");
-  }
-  return tree;
-}
 
 describe("validation reports for every error kind", () => {
   for (const [code, { files, paths, fix, links = {} }] of Object.entries(ERROR_KINDS)) {
@@ -3193,19 +3185,19 @@ describe("validation reports for every error kind", () => {
         expect(check.code).toBe(1);
         expect(JSON.parse(check.out).violations.map((v: Violation) => [v.code, v.path])).toEqual(paths.map((path) => [code, path]));
         const roots = [ws, installed, fresh, home];
-        const before = await Promise.all(roots.map(validationTree));
+        const before = await Promise.all(roots.map((root) => exactTree(root)));
         const install = cli(home, fresh, "install", "engineering", "--agents", agents, "--yes");
         expect(install.code).toBe(1);
         for (const path of paths) expect(install.err).toContain(path);
         expect(install.err).toContain(fix);
         expect(install.err).toContain(`Next: \`${COMMAND} contract\``);
-        expect(await Promise.all(roots.map(validationTree))).toEqual(before);
+        expect(await Promise.all(roots.map((root) => exactTree(root)))).toEqual(before);
         const update = cli(home, installed, "update", "--all", "--yes");
         expect(update.code).toBe(1);
         for (const path of paths) expect(update.err).toContain(path);
         expect(update.err).toContain(fix);
         expect(update.err).toContain(`Next: \`${COMMAND} contract\``);
-        expect(await Promise.all(roots.map(validationTree))).toEqual(before);
+        expect(await Promise.all(roots.map((root) => exactTree(root)))).toEqual(before);
       });
     });
   }
@@ -3217,13 +3209,23 @@ describe("published standard Skill packages (ISC-38)", () => {
     const home = await tempDir("home");
     const root = await tempDir("published-skills");
     await writeTree(root, { "apkit-workspace.yaml": "schema_version: 1\n", "profiles/published.yaml": "skills: all\n" });
+    // An empty user-owned folder must survive validation too.
+    await mkdir(join(root, "empty-folder"));
     const manifest = JSON.parse(await read(source, "sha256.json")) as Record<string, string>;
+    // Hash the raw bytes here, not with the engine's own (line-ending-normalizing) hash.
+    const sha256 = (text: string) => createHash("sha256").update(Buffer.from(text, "latin1")).digest("hex");
+    const retained = await exactTree(source, { skip: (path) => path === "README.md" || path === "sha256.json" });
+    const files = (tree: Record<string, string>) =>
+      Object.fromEntries(Object.entries(tree).filter(([path]) => !path.endsWith("/")).map(([path, text]) => [path, sha256(text)]));
+    expect(files(retained)).toEqual(manifest);
+    // Only the published package folders go into the Workspace; the licences stay beside them.
     for (const name of ["django-perf-review", "transformers-js"]) {
       await cp(join(source, name), join(root, "skills", name), { recursive: true });
     }
-    const before = await retainedTree(root);
-    const copied = await retainedTree(join(root, "skills"));
-    expect(Object.fromEntries(Object.entries(copied).filter(([path]) => !path.endsWith("/")))).toEqual(manifest);
+    const before = await exactTree(root);
+    expect(files(await exactTree(join(root, "skills")))).toEqual(
+      Object.fromEntries(Object.entries(manifest).filter(([path]) => !path.startsWith("licenses/"))),
+    );
     const result = cli(home, root, "check", "--workspace", root, "--json");
     expect([result.code, result.err]).toEqual([0, ""]);
     const report = JSON.parse(result.out);
@@ -3231,79 +3233,16 @@ describe("published standard Skill packages (ISC-38)", () => {
     expect(report.violations).toEqual([]);
     expect(report.warnings).toEqual([]);
     expect(report.skills).toEqual(["django-perf-review", "transformers-js"]);
-    expect(await retainedTree(root)).toEqual(before);
+    expect(await exactTree(root)).toEqual(before);
   });
 });
 
-/** Exact file bytes (SHA-256) and every directory, including empty ones. */
-async function retainedTree(root: string): Promise<Record<string, string>> {
-  const tree: Record<string, string> = {};
-  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
-    const full = join(entry.parentPath, entry.name);
-    const path = relative(root, full).split(sep).join("/");
-    if (entry.isDirectory()) tree[`${path}/`] = "";
-    else if (entry.isFile()) tree[path] = hash(await readFile(full));
-    else throw new Error(`Unexpected retained-fixture entry: ${path}`);
-  }
-  return tree;
-}
-
-describe("retained Workspace CLI compatibility (ISC-46)", () => {
-  test("every retained format names all needed changes in one CLI check, and those changes suffice", async () => {
-    const fixtures: { source: string; counts: Record<string, number> }[] = [
-      { source: "compat-0.16.0/minimal", counts: { "workspace-old-manifest": 1 } },
-      { source: "compat-0.16.0/partial", counts: { "workspace-old-manifest": 1, "invalid-profile": 1 } },
-      { source: "compat-0.84.0", counts: { "workspace-old-manifest": 1, "invalid-profile": 1, "missing-context-reference": 1 } },
-      { source: "compat-0.204.0/workspace-source", counts: { "workspace-old-manifest": 1, "invalid-profile": 2, "missing-context-reference": 1 } },
-      { source: "compat-0.204.0/workspace-realistic", counts: { "workspace-old-manifest": 1, "invalid-profile": 5, "missing-context-reference": 29 } },
-      { source: "compat-0.237.0", counts: { "workspace-old-manifest": 1 } },
-    ];
-    for (const fixture of fixtures) {
-      const home = await tempDir("home");
-      const root = await tempDir("retained-cli");
-      await cp(join(import.meta.dir, "retained", ...fixture.source.split("/")), root, { recursive: true });
-      // An empty user-owned folder must survive validation and every named repair.
-      await mkdir(join(root, "empty-folder"));
-      const before = await retainedTree(root);
-      const first = cli(home, root, "check", "--workspace", root, "--json");
-      expect([fixture.source, first.code, first.err]).toEqual([fixture.source, 1, ""]);
-      const report = JSON.parse(first.out) as { valid: boolean; violations: Violation[]; contract: string };
-      expect(report.valid).toBe(false);
-      expect(report.contract).toBe("apkit contract");
-      const counts: Record<string, number> = {};
-      for (const error of report.violations) {
-        counts[error.code] = (counts[error.code] ?? 0) + 1;
-        expect(Object.keys(before)).toContain(error.path);
-      }
-      expect([fixture.source, counts]).toEqual([fixture.source, fixture.counts]);
-      expect(await retainedTree(root)).toEqual(before);
-      await applyNamedChanges(root, report.violations);
-      const repaired = await retainedTree(root);
-      expect(repaired["empty-folder/"]).toBe("");
-      const second = cli(home, root, "check", "--workspace", root, "--json");
-      expect([fixture.source, second.code, second.err]).toEqual([fixture.source, 0, ""]);
-      expect(JSON.parse(second.out).violations).toEqual([]);
-      expect(JSON.parse(second.out).valid).toBe(true);
-      expect(await retainedTree(root)).toEqual(repaired);
-    }
-  });
-});
 
 describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
   function folderCli(home: string, cwd: string, ...args: string[]) {
     return cliWithEnv({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, home, cwd, ...args);
   }
 
-  // Exact bytes and every directory, including empty ones; paths are portable across CI platforms.
-  async function folderTree(root: string): Promise<Record<string, string>> {
-    const entries: Record<string, string> = {};
-    for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
-      const full = join(entry.parentPath, entry.name);
-      const path = relative(root, full).split(sep).join("/");
-      entries[entry.isDirectory() ? `${path}/` : path] = entry.isDirectory() ? "" : (await readFile(full)).toString("hex");
-    }
-    return entries;
-  }
 
   test("only caller-supplied paths select a Workspace, including migration without a legacy selection", async () => {
     const home = await tempDir("selection-home");
@@ -3311,8 +3250,8 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
     const one = await tempDir("selection-one");
     const two = await makeWorkspace();
     expect(folderCli(home, cwd, "init").code).toBe(2);
-    expect(await folderTree(home)).toEqual({});
-    expect(await folderTree(cwd)).toEqual({});
+    expect(await exactTree(home)).toEqual({});
+    expect(await exactTree(cwd)).toEqual({});
     for (const [command, path] of [["init", one], ["init", one], ["workspace", one], ["workspace", one], ["workspace", two]]) {
       const result = folderCli(home, cwd, command!, path!, "--json");
       expect([result.code, result.err]).toEqual([0, ""]);
@@ -3333,14 +3272,14 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
     expect(JSON.parse(migrated.out).workspace).toBeNull();
     expect(JSON.parse(await read(apkitHome, "config.json"))).not.toHaveProperty("workspace");
     expect(JSON.parse(run("workspace", "--json").out).workspace).toBeNull();
-    expect(await folderTree(legacyHome)).toEqual({
+    expect(await exactTree(legacyHome)).toEqual({
       ".agents/": "",
       ".agents/agent-profile-kit.migrated/": "",
-      ".agents/agent-profile-kit.migrated/config.yaml": Buffer.from("schema_version: 1\n").toString("hex"),
+      ".agents/agent-profile-kit.migrated/config.yaml": "schema_version: 1\n",
       "apkit/": "",
-      "apkit/config.json": Buffer.from('{"installs": []}\n').toString("hex"),
+      "apkit/config.json": '{"installs": []}\n',
     });
-    expect(await folderTree(cwd)).toEqual({});
+    expect(await exactTree(cwd)).toEqual({});
   });
 
   for (const path of [".", "nested/my workspace"]) {
@@ -3363,7 +3302,7 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
   test("init completes empty, unrelated-file, and partial folders with only the contract structure", async () => {
     const home = await tempDir("structure-home");
     const structure = {
-      "apkit-workspace.yaml": Buffer.from("schema_version: 1\n").toString("hex"),
+      "apkit-workspace.yaml": "schema_version: 1\n",
       "context/": "", "skills/": "", "profiles/": "",
     };
     for (const state of ["empty", "unrelated", "partial"]) {
@@ -3374,10 +3313,10 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
         await mkdir(join(root, "notes", "empty"));
       }
       if (state === "partial") await writeTree(root, { "context/existing.md": "Existing Context.\n" });
-      const before = await folderTree(root);
+      const before = await exactTree(root);
       const result = folderCli(home, home, "init", root, "--json");
       expect([result.code, result.err]).toEqual([0, ""]);
-      expect(await folderTree(root)).toEqual({ ...structure, ...before });
+      expect(await exactTree(root)).toEqual({ ...structure, ...before });
       expect(JSON.parse(result.out).added.sort()).toEqual(Object.keys(structure).filter((path) => !(path in before)).sort());
       const checked = folderCli(home, home, "check", "--json");
       expect([checked.code, checked.err]).toEqual([0, ""]);
@@ -3403,13 +3342,13 @@ describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
           "profiles/broken.yaml": "context: [does-not-exist]\n",
         });
       }
-      const before = await folderTree(root);
+      const before = await exactTree(root);
       const result = folderCli(home, home, "init", root, "--json");
       expect([result.code, result.err]).toEqual([0, ""]);
-      const after = await folderTree(root);
+      const after = await exactTree(root);
       // Exact whole-tree equality catches changes, moves, deletions, and extra additions.
       expect(after).toEqual({
-        "apkit-workspace.yaml": Buffer.from("schema_version: 1\n").toString("hex"),
+        "apkit-workspace.yaml": "schema_version: 1\n",
         "context/": "", "skills/": "", "profiles/": "",
         ...before,
       });
@@ -3430,24 +3369,6 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
   // Resolve Node before replacing PATH; the Bun runner is already an absolute path.
   const runtime = BUILT ? spawnSync("node", ["-p", "process.execPath"], { encoding: "utf8" }).stdout.trim() : process.execPath;
 
-  /** No exclusions: exact bytes, all directories (including empty ones), and link targets. */
-  async function completeTree(root: string): Promise<Record<string, string>> {
-    const tree: Record<string, string> = {};
-    async function visit(folder: string): Promise<void> {
-      for (const name of (await readdir(folder)).sort()) {
-        const full = join(folder, name);
-        const path = relative(root, full).split(sep).join("/");
-        const info = await lstat(full);
-        if (info.isSymbolicLink()) tree[path] = `link:${await readlink(full)}`;
-        else if (info.isDirectory()) {
-          tree[`${path}/`] = "";
-          await visit(full);
-        } else tree[path] = `file:${(await readFile(full)).toString("latin1")}`;
-      }
-    }
-    await visit(root);
-    return tree;
-  }
 
   async function fakePrograms() {
     const bin = await tempDir("fake-bin");
@@ -3490,10 +3411,10 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
     await mkdir(join(cwd, "empty"));
     await writeTree(cwd, { "mine.txt": "mine\r\n" });
     async function unchanged(args: string[], code: number, result: string) {
-      const before = await Promise.all([completeTree(home), completeTree(cwd)]);
+      const before = await Promise.all([exactTree(home), exactTree(cwd)]);
       const run = isolatedCli(env, home, cwd, ...args);
       expect([run.code, run.err, run.data.result]).toEqual([code, "", result]);
-      expect(await Promise.all([completeTree(home), completeTree(cwd)])).toEqual(before);
+      expect(await Promise.all([exactTree(home), exactTree(cwd)])).toEqual(before);
       expect(await readdir(markers)).toEqual([]);
       return run.data;
     }
@@ -3550,7 +3471,7 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
         ]) {
           const result = isolatedCli(env, home, project, ...args);
           expect([result.code, result.err]).toEqual([0, ""]);
-          results.push(result.data, await completeTree(home), await completeTree(project));
+          results.push(result.data, await exactTree(home), await exactTree(project));
         }
         outcomes.push(portable(results, root));
         expect(await readdir(markers)).toEqual([]);
@@ -3602,7 +3523,7 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
   });
 
   async function decision(home: string, project: string, roots: string[], args: string[], kind: string, path?: string) {
-    const before = await Promise.all(roots.map(completeTree));
+    const before = await Promise.all(roots.map((root) => exactTree(root)));
     const result = isolatedCli({}, home, project, ...args);
     expect([result.code, result.err]).toEqual([3, ""]);
     const outcomes = result.data.results ?? result.data.projects ?? [result.data];
@@ -3610,7 +3531,7 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
       result: "needs-decision",
       issues: expect.arrayContaining([expect.objectContaining({ kind, ...(path === undefined ? {} : { path }) })]),
     }));
-    expect(await Promise.all(roots.map(completeTree))).toEqual(before);
+    expect(await Promise.all(roots.map((root) => exactTree(root)))).toEqual(before);
   }
 
   test("each project install Decision preserves the complete Project, home and Workspace trees", async () => {
@@ -3724,23 +3645,23 @@ describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", ()
     await decision(home, project, roots, ["migrate"], "consent", "AGENTS.md");
     // The Workspace marker rename is a Decision too, even before an installation is changed.
     await rm(join(workspace, "apkit-workspace.yaml"));
-    const before = await Promise.all(roots.map(completeTree));
+    const before = await Promise.all(roots.map((root) => exactTree(root)));
     const rename = isolatedCli({}, home, project, "migrate");
     expect([rename.code, rename.err, rename.data.workspace.rename.result]).toEqual([3, "", "needs-decision"]);
-    expect(await Promise.all(roots.map(completeTree))).toEqual(before);
+    expect(await Promise.all(roots.map((root) => exactTree(root)))).toEqual(before);
     await writeTree(workspace, { "apkit-workspace.yaml": "" });
     // A changed legacy configuration and Skill cannot be overwritten just by --yes.
     const hook = ".codex/hooks.json";
     const hooks = JSON.parse(await read(project, hook));
     hooks.hooks.SessionStart.push({ matcher: "startup", hooks: [{ command: "echo mine", type: "command" }] });
     await writeTree(project, { [hook]: JSON.stringify(hooks), ".claude/skills/summarize/SKILL.md": "My changed Skill\n" });
-    const changedBefore = await Promise.all(roots.map(completeTree));
+    const changedBefore = await Promise.all(roots.map((root) => exactTree(root)));
     const changed = isolatedCli({}, home, project, "migrate", "--yes");
     expect([changed.code, changed.err]).toEqual([3, ""]);
     expect(changed.data.projects[0]).toMatchObject({ result: "needs-decision", issues: expect.arrayContaining([
       expect.objectContaining({ kind: "changed", path: ".claude/skills/summarize" }),
     ]) });
-    expect(await Promise.all(roots.map(completeTree))).toEqual(changedBefore);
+    expect(await Promise.all(roots.map((root) => exactTree(root)))).toEqual(changedBefore);
     expect(await readFile(join(state, "state", "manifest.json"), "utf8")).toContain("receipts");
   });
 

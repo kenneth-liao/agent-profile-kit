@@ -1,17 +1,17 @@
-# 0.84.0 reduced-Profile Workspace (#239, #787)
+# 0.95.0 reduced-Profile Workspace (#239, #787)
 
-Neutral, hand-authored fixture validated with the engine at
-`ca468af769016c16148cb925b39b39fb567868af` (`package.json` version `0.84.0`),
-"Remove unsupported Profile fields (#259)", which delivered #239. #787
-originally named 0.95.0, but the changing commit and #239's delivery record
-identify 0.84.0; use the actual format-changing release.
+Neutral, hand-authored fixture validated with the released engine at tag
+`v0.95.0` (`55abadb87cc45bbff30cccb2dc94222e10044df1`). `CHANGELOG.md` lists #239
+under `## [0.95.0] - 2026-08-24`. The format change itself landed earlier, at
+`ca468af` "Remove unsupported Profile fields (#259)" (package version 0.84.0,
+unreleased), and shipped in 0.95.0.
 
-The Profile contains exactly the three implemented fields of that release:
+The Profile contains exactly the three Profile fields of that release:
 `id`, `context`, and `skills`. The obsolete `agents`, `hooks`, and `tools`
 placeholders are absent. Context frontmatter supplies its ID, independently of
 its filename, as permitted then. Content is synthetic and belongs to this repo.
 
-On 2026-11-06, Bun 1.4.4 installed historical dependencies with lifecycle scripts
+On 2026-11-05, Bun 1.4.4 installed historical dependencies with lifecycle scripts
 disabled and bundled the historical CLI; Node v26.12.1 ran `validate` in a fresh
 home. It exited 0 with 1 Profile (`writing`) and 0 Project Bindings.
 Reproduction: `../verify-historical.py` and the instructions in `../README.md`.

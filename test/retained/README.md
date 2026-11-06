@@ -11,11 +11,10 @@ pass, or fail with every needed change named (ISC-46).
 - `compat-0.204.0/` — the 0.204.0 Workspaces (`workspace-source` and the
   realistic-scale `workspace-realistic`) and their original provenance and
   reproduction material. Their README says how they were made.
-- `compat-0.16.0/` — optional scaffolding (#50): minimal and partial
-  Workspaces, validated by 0.16.0. Its provenance explains the correction from
-  the ticket's 0.20.0 release attribution.
-- `compat-0.84.0/` — reduced Profile schema (#239), validated by 0.84.0.
-  Its provenance explains the correction from the ticket's 0.95.0 attribution.
+- `compat-0.20.0/` — optional scaffolding (#50): minimal and partial
+  Workspaces, validated by the 0.20.0 release.
+- `compat-0.95.0/` — reduced Profile schema (#239), validated by the 0.95.0
+  release.
 - `standard-skills/` — unchanged published Apache-2.0 Skill packages and
   licenses, pinned upstream revisions and SHA-256 manifest (ISC-38).
 
@@ -27,8 +26,8 @@ historical revision, with these directories created first:
 
 | Version | Revision |
 | --- | --- |
-| 0.16.0 | `f2ec1c1e4fc7bd0acb342eb16b643776dc5a1929` |
-| 0.84.0 | `ca468af769016c16148cb925b39b39fb567868af` |
+| 0.20.0 | `d23221783859658876ffa0efa43faef7df13e673` |
+| 0.95.0 | `v0.95.0` (`55abadb87cc45bbff30cccb2dc94222e10044df1`) |
 
 In each extracted directory run `bun install --ignore-scripts`, then
 `bun build cli/index.ts --target=node --packages=bundle --outfile=dist/cli.js --silent`.

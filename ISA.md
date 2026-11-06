@@ -720,7 +720,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-42.2: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-43: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-44: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
-- ISC-46: `test/cli.test.ts` "every retained format names all needed changes in one CLI check, and those changes suffice"
+- ISC-46: `test/cli.test.ts` "0.20.0 minimal: one CLI check names every needed change, and those changes suffice"; "0.20.0 partial: one CLI check names every needed change, and those changes suffice"; "0.95.0: one CLI check names every needed change, and those changes suffice"; "0.204.0 source: one CLI check names every needed change, and those changes suffice"; "0.204.0 realistic: one CLI check names every needed change, and those changes suffice"; "0.237.0: one CLI check names every needed change, and those changes suffice"
 - ISC-47.1: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"
 - ISC-47.2: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"
 - ISC-48: `test/cli.test.ts` "init and workspace select Workspaces with errors and show the complete check report (ISC-48)"
