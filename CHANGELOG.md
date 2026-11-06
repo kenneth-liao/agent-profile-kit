@@ -6,9 +6,9 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
-- Fixed `remove`, and an `update` that drops an agent, deleting empty folders the user had before the install, such as an empty `.claude/` or `.agents/`; the Installation Manifest now records the Project folders the install created, and removal deletes only those, while an install recorded by an earlier apkit prunes as before (#779)
+- Fixed `remove`, and an `update` that drops an agent, deleting empty folders the user had before the install, such as an empty `.claude/` or `.agents/`; the Installation Manifest now records the Project folders the install created, and removal deletes only those, while an install recorded by an earlier apkit prunes as before; `migrate` records as created only folders of the old engine's outputs, so it keeps an empty folder the user had before a current install (#779)
 - Fixed Workspace validation reports omitting offending paths for duplicate Skills, duplicate Profiles, and missing references, and omitting concrete corrections for duplicate Skills, invalid Profile YAML, repeated selections, and missing references (#782)
-- Fixed `apkit guide` omitting `help` and `--help`, and clarified `--workspace` and text output with `--json`; coverage now compares against the parser inventory (#786)
+- Fixed `apkit guide` omitting `help` and `--help`, and clarified `--workspace` and text output with `--json` (#786)
 - Fixed `apkit init <path>` selecting a Workspace with errors without reporting them; it now shows the complete validation report, like `workspace <path>`, while keeping the Workspace selected (#781)
 - Fixed `apkit init` without a path, `apkit workspace` without a path, and `--help` with a command that writes leaving an empty `~/.agents/apkit/` folder in a fresh home; none of them now writes anything there (#774)
 - Fixed `apkit --help` starting the descriptions of the long usage lines five columns right of the others and leaving `--agents` and `--all` out of `Options:`; every description now starts in one column and both options are listed, and the npm package description now says what apkit does instead of "Compose portable agent material into host-native profiles."
