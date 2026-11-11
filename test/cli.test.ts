@@ -10,7 +10,7 @@ import { hash } from "../src/install.js";
 import { AGENTS, type AgentId } from "../src/render.js";
 import { loadWorkspace, type Violation } from "../src/workspace.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { CASE_SENSITIVE_CONTEXT, ERROR_KINDS } from "./validation-cases.js";
+import { DEDICATED_TEST_KINDS, ERROR_KINDS } from "./validation-cases.js";
 import { exactTree, makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
 import { materializeMachine, materializeMigration, type MigrationFixture } from "./migration.js";
 
@@ -3243,8 +3243,9 @@ describe("the migration notice (SRC-10)", () => {
 
 describe("validation reports for every error kind", () => {
   for (const [code, { files, paths, fix, links = {} }] of Object.entries(ERROR_KINDS)) {
+    if (DEDICATED_TEST_KINDS.has(code)) continue;
     describe(code, () => {
-      test.skipIf(code === "context-id-case-collision" && !CASE_SENSITIVE_CONTEXT)("check names every offending path, its fix, and the contract", async () => {
+      test("check names every offending path, its fix, and the contract", async () => {
         const home = await tempDir("home");
         const ws = await tempDir("ws");
         await writeTree(ws, files);
@@ -3265,7 +3266,7 @@ describe("validation reports for every error kind", () => {
         expect(report.contract).toBe(`${COMMAND} contract`);
       });
 
-      test.skipIf(code === "context-id-case-collision" && !CASE_SENSITIVE_CONTEXT)("install and update leave every file and folder unchanged", async () => {
+      test("install and update leave every file and folder unchanged", async () => {
         const home = await tempDir("home");
         const ws = await makeWorkspace();
         const installed = await tempDir("installed");

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, readdir, readFile, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { loadWorkspace, WARNINGS } from "../src/workspace.js";
-import { CASE_SENSITIVE_CONTEXT, ERROR_KINDS } from "./validation-cases.js";
+import { DEDICATED_TEST_KINDS, ERROR_KINDS } from "./validation-cases.js";
 import { makeWorkspace, SKILL, tempDir, writeTree } from "./fixtures.js";
 
 const codes = async (files: Record<string, string>) => {
@@ -197,7 +197,8 @@ describe("loadWorkspace", () => {
   });
 
   for (const [code, { prevents, files, paths, fix, links = {} }] of Object.entries(ERROR_KINDS)) {
-    test.skipIf(code === "context-id-case-collision" && !CASE_SENSITIVE_CONTEXT)(`${code} is an error: it prevents ${prevents}`, async () => {
+    if (DEDICATED_TEST_KINDS.has(code)) continue;
+    test(`${code} is an error: it prevents ${prevents}`, async () => {
       const root = await tempDir("ws");
       await writeTree(root, files);
       for (const [link, to] of Object.entries(links)) {
@@ -268,6 +269,7 @@ describe("loadWorkspace", () => {
         ["context-id-case-collision", "context/Style.md"],
         ["context-id-case-collision", "context/style.md"],
       ]);
+      for (const violation of workspace.violations) expect(violation.message).toContain(ERROR_KINDS["context-id-case-collision"]!.fix);
       expect(workspace.context.size).toBe(0);
     } else {
       // A case-insensitive file system keeps one file, so no ambiguous pair can exist.

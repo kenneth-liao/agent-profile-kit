@@ -1,11 +1,11 @@
-import { readdir, rm } from "node:fs/promises";
-import { SKILL, tempDir, writeTree } from "./fixtures.js";
+import { SKILL } from "./fixtures.js";
 
-// Detect the filesystem capability, not the OS: this collision cannot exist on a case-insensitive volume.
-const probe = await tempDir("case-probe");
-await writeTree(probe, { "Style.md": "Upper", "style.md": "Lower" });
-export const CASE_SENSITIVE_CONTEXT = (await readdir(probe)).length === 2;
-await rm(probe, { recursive: true });
+/**
+ * Error kinds that the per-kind journeys cannot build on every file system. A
+ * test that skips fails release qualification (ADR-0059), so these kinds have
+ * a dedicated test that passes on every file system instead.
+ */
+export const DEDICATED_TEST_KINDS = new Set(["context-id-case-collision"]);
 
 // Each error kind blocks installs, so each names the wrong or ambiguous install it prevents (ADR-0057 §4, ISC-82).
 /** `links`: link path → the path it points to, both under the Workspace root. */
