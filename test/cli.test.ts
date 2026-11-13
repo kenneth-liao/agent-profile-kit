@@ -852,7 +852,9 @@ describe("apkit CLI", () => {
       expect(await homeSnapshot(home)).toEqual(before);
 
       expect(cli(home, home, ...install, "--yes").code).toBe(0);
-      expect({ name, text: await read(home, opencode) }).toEqual({ name, text: expect.stringContaining(marker) });
+      const text = await read(home, opencode);
+      expect({ name, text }).toEqual({ name, text: expect.stringContaining(marker) });
+      expect(text).toContain(name === "setup" ? "<!-- apkit:begin -->" : "<!-- apkit:global:begin -->");
       expect(await read(home, ".claude/CLAUDE.md")).toBe("# Mine\n");
 
       expect(cli(home, home, ...remove).code).toBe(0);
@@ -893,7 +895,6 @@ describe("apkit CLI", () => {
       const manifest = JSON.parse(await read(home, "global.json"));
       const body = readBlock(await read(home, ".config/opencode/AGENTS.md"), "apkit:global") as string;
       await writeFile(claudePath, writeBlock(original, body, "apkit:global"));
-      await rm(opencodePath);
       await rm(join(home, ".config"), { recursive: true });
       const record = manifest.sections[opencodePath];
       manifest.sections = { [claudePath]: { hash: record.hash, created: false } };
@@ -912,6 +913,28 @@ describe("apkit CLI", () => {
         agents === "opencode" ? [opencodePath] : [claudePath, opencodePath],
       );
     }
+  });
+
+  test("setup again moves a note that an earlier apkit wrote to ~/.claude/CLAUDE.md for OpenCode into OpenCode's own AGENTS.md", async () => {
+    const home = await tempDir("home");
+    await writeTree(home, { ".claude/CLAUDE.md": "# Mine\n" });
+    const original = await read(home, ".claude/CLAUDE.md");
+    expect(cli(home, home, "setup", "--agents", "opencode", "--yes").code).toBe(0);
+
+    // Rebuild what apkit 0.239.6 wrote: the note and its record in CLAUDE.md, no OpenCode file.
+    const claudePath = join(home, ".claude", "CLAUDE.md");
+    const opencodePath = join(home, ".config", "opencode", "AGENTS.md");
+    const config = JSON.parse(await read(home, "config.json"));
+    await writeFile(claudePath, writeBlock(original, readBlock(await read(home, ".config/opencode/AGENTS.md")) as string));
+    await rm(join(home, ".config"), { recursive: true });
+    config.notes = { [claudePath]: { hash: config.notes[opencodePath].hash, created: false } };
+    await writeFile(join(home, "config.json"), JSON.stringify(config));
+
+    expect(cli(home, home, "setup", "--agents", "opencode").code).toBe(3);
+    expect(cli(home, home, "setup", "--agents", "opencode", "--yes").code).toBe(0);
+    expect(await read(home, ".config/opencode/AGENTS.md")).toContain(`run \`${COMMAND} guide\``);
+    expect(await read(home, ".claude/CLAUDE.md")).toBe(original);
+    expect(Object.keys(JSON.parse(await read(home, "config.json")).notes)).toEqual([opencodePath]);
   });
 
   test("setup --remove and remove --global restore each agent's user-level file byte for byte, with CRLF and no final newline", async () => {

@@ -6,7 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
-- Fixed `install --global` and `setup` writing OpenCode's Context and note to `~/.claude/CLAUDE.md`, which OpenCode v2 does not read; they now always write OpenCode's own `~/.config/opencode/AGENTS.md` (created with consent), and `update --all` moves an earlier global install there (#798)
+- Fixed `install --global` and `setup` writing OpenCode's Context and note to `~/.claude/CLAUDE.md`, which OpenCode v2 does not read; they now always write OpenCode's own `~/.config/opencode/AGENTS.md` (created with consent), `update --all` moves an earlier global install there, and running `setup` again moves an earlier note (#798)
 
 ## [0.239.6] - 2026-11-12
 

@@ -279,8 +279,10 @@ untrusted folder with no project instructions, each agent quoted the Context
 marker and named the marker Skill without tools: `claude -p` (2.1.314),
 `codex exec` (0.164.0), `opencode run` (2.2.4), `pi -p` (1.4.0), `grok -p`
 (1.0.70), and `agy -p` (1.4.12). `remove --global` then restored every file.
-On 2026-11-13 (#798), OpenCode 2.2.4 was checked again after it moved to its own
-`AGENTS.md`: with `~/.claude/CLAUDE.md` also present, `opencode run` in a folder
+The OpenCode result of that check is superseded: on 2026-11-13 (#798), OpenCode
+2.2.4 did not read a marker that was only in `~/.claude/CLAUDE.md`, and why the
+earlier check passed is not known. After apkit moved OpenCode to its own
+`AGENTS.md`, with `~/.claude/CLAUDE.md` also present, `opencode run` in a folder
 with no project install followed a rule from the installed Context.
 
 Grok also reads `~/.claude/CLAUDE.md` by default, so it may see the Setup Note

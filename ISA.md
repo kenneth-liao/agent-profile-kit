@@ -350,8 +350,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - [x] **ISC-71:** **Anti:** `setup` or a global install never hides an existing
   user-level file from a Host.
   Probe: OpenCode with `~/.claude/CLAUDE.md` present; any change to
-  `CLAUDE.md` fails, and OpenCode's own new `AGENTS.md` hides nothing it
-  reads. bash
+  `CLAUDE.md` fails. bash
 - [x] **ISC-72:** **Anti:** Removing the `setup` note or a global install
   restores each user-level file byte for byte.
   Probe: byte-compare each user-level file before install and after removal;
@@ -748,7 +747,7 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-66: `test/cli.test.ts` "a changed Codex hook and OpenCode configuration are a decision that names apkit's part, and nothing changes"; "a changed Skill folder and Markdown output are listed with their origin; --yes cannot keep a Skill this apkit installs again"
 - ISC-67: `test/cli.test.ts` "a Project the old engine installed is removed by the current apkit alone: after migrate and remove it matches the Project before the old install"; takeover: "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install"
 - ISC-70: `test/cli.test.ts` "setup --yes gives every detected agent's user-level file a note that points to guide (all six agents)"
-- ISC-71: `test/cli.test.ts` "setup and a global install for OpenCode write its own AGENTS.md and never touch ~/.claude/CLAUDE.md"
+- ISC-71: @713ba43, `bun test` (Bun 1.4.4): `test/cli.test.ts` "setup and a global install for OpenCode write its own AGENTS.md and never touch ~/.claude/CLAUDE.md"; OpenCode does not read `~/.claude/CLAUDE.md`, so its own `AGENTS.md` hides nothing (`docs/ARCHITECTURE.md` § User-level instruction files, #798)
 - ISC-72: `test/cli.test.ts` "setup --remove and remove --global restore each agent's user-level file byte for byte, with CRLF and no final newline"
 - ISC-73: `test/cli.test.ts` "install --global puts a Profile's Context in each agent's user-level file, after consent"
 - ISC-74: `test/cli.test.ts` "status names Context installed both at user level and in the Project, and never blocks"
