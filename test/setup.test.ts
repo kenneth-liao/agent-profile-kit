@@ -48,13 +48,14 @@ describe("setup", () => {
     expect(again.planned.issues).toEqual([]);
   });
 
-  test("OpenCode uses ~/.claude/CLAUDE.md when it has no AGENTS.md of its own, so that file is never hidden", async () => {
+  test("OpenCode always gets its own AGENTS.md, even when ~/.claude/CLAUDE.md exists", async () => {
     const home = await tempDir("home");
     await writeTree(home, { ".claude/CLAUDE.md": "# Mine\n" });
     const targets = await noteTargets(["claude", "opencode"], home, {});
-    expect(targets).toEqual([{ path: join(home, ".claude", "CLAUDE.md"), agents: ["claude", "opencode"] }]);
-    await writeTree(home, { ".config/opencode/AGENTS.md": "# OpenCode\n" });
-    expect((await noteTargets(["opencode"], home, {}))[0]?.path).toBe(join(home, ".config", "opencode", "AGENTS.md"));
+    expect(targets).toEqual([
+      { path: join(home, ".claude", "CLAUDE.md"), agents: ["claude"] },
+      { path: join(home, ".config", "opencode", "AGENTS.md"), agents: ["opencode"] },
+    ]);
   });
 
   test("respects agent override files and home folder variables", async () => {

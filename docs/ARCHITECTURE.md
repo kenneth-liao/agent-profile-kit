@@ -154,10 +154,9 @@ and the next manifest. `execute` runs only after every Decision is settled.
   removed alone. A file that both use is deleted when the last section leaves
   it, if apkit created it. The manifest is `global.json` in the apkit home.
   Removal prunes empty folders up to each Host folder, never past it.
-- **OpenCode** reads only the first of `~/.config/opencode/AGENTS.md` and
-  `~/.claude/CLAUDE.md` that exists. When only `CLAUDE.md` exists, apkit writes
-  there, because creating OpenCode's own file would hide the user's `CLAUDE.md`
-  from OpenCode.
+- **OpenCode** reads only its own `~/.config/opencode/AGENTS.md`, not
+  `~/.claude/CLAUDE.md`. apkit always writes OpenCode's own file and creates it
+  when it is missing, so Claude Code and OpenCode never share a file.
 - **Symlinked user files.** User-level files are often symlinks into a dotfiles
   repository; apkit writes the real file.
 
@@ -256,7 +255,7 @@ Used by `setup` and `install --global`. Verified 2026-10-30:
 |---|---|---|
 | Claude Code | `$CLAUDE_CONFIG_DIR` or `~/.claude`, `CLAUDE.md` | Marker reached the model request |
 | Codex | `$CODEX_HOME` or `~/.codex`, `AGENTS.override.md` if present, else `AGENTS.md` | Marker reached the model request |
-| OpenCode | `~/.config/opencode/AGENTS.md`, else `~/.claude/CLAUDE.md` (first that exists) | Marker reached the model request, in both orders |
+| OpenCode | `~/.config/opencode/AGENTS.md` only; `~/.claude/CLAUDE.md` is not read (v2.2.4, verified 2026-11-13, #798) | `opencode run` quoted the marker from its own file and not from `CLAUDE.md` |
 | Pi | `$PI_CODING_AGENT_DIR` or `~/.pi/agent`, `AGENTS.md` | Marker reached the model request |
 | Grok | `$GROK_HOME` or `~/.grok`, `rules/*.md` (loaded without folder trust) | `grok -p` quoted the marker, in an untrusted folder |
 | Antigravity | `~/.gemini/AGENTS.md` or `GEMINI.md` | Live session quoted the marker |
@@ -280,6 +279,9 @@ untrusted folder with no project instructions, each agent quoted the Context
 marker and named the marker Skill without tools: `claude -p` (2.1.314),
 `codex exec` (0.164.0), `opencode run` (2.2.4), `pi -p` (1.4.0), `grok -p`
 (1.0.70), and `agy -p` (1.4.12). `remove --global` then restored every file.
+On 2026-11-13 (#798), OpenCode 2.2.4 was checked again after it moved to its own
+`AGENTS.md`: with `~/.claude/CLAUDE.md` also present, `opencode run` in a folder
+with no project install followed a rule from the installed Context.
 
 Grok also reads `~/.claude/CLAUDE.md` by default, so it may see the Setup Note
 twice; that is harmless.

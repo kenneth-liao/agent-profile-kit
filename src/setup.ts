@@ -72,13 +72,9 @@ async function noteFile(agent: AgentId, home: string, env: Env): Promise<string>
       const override = join(dir, "AGENTS.override.md");
       return (await exists(override)) ? override : join(dir, "AGENTS.md");
     }
-    case "opencode": {
-      // OpenCode reads only the first of these that exists. Creating its own
-      // AGENTS.md would hide the user's ~/.claude/CLAUDE.md from it.
-      const own = join(dir, "AGENTS.md");
-      const claude = join(agentHome("claude", home, env), "CLAUDE.md");
-      return !(await exists(own)) && (await exists(claude)) ? claude : own;
-    }
+    case "opencode":
+      // OpenCode does not read ~/.claude/CLAUDE.md, so it always gets its own file.
+      return join(dir, "AGENTS.md");
     case "grok":
       return join(dir, "rules", "apkit.md");
     case "antigravity":

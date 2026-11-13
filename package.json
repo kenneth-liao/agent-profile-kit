@@ -1,6 +1,6 @@
 {
   "name": "agent-profile-kit",
-  "version": "0.239.6",
+  "version": "0.239.7",
   "description": "Keep your Skills and Context in one Workspace and install them into your projects for each coding agent you use.",
   "license": "MIT",
   "repository": {
