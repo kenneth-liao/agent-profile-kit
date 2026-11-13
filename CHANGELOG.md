@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Fixed `install --global` and `setup` writing OpenCode's Context and note to `~/.claude/CLAUDE.md`, which OpenCode v2 does not read; they now always write OpenCode's own `~/.config/opencode/AGENTS.md` (created with consent), `update --all` moves an earlier global install there, and running `setup` again moves an earlier note (#798)
+
 ## [0.239.6] - 2026-11-12
 
 - Fixed a Skill named twice in a Profile's `skills` list blocking every install as a `duplicate-selection` error; it is now a `duplicate-skill-selection` warning and the Skill is installed once, while a repeated Context ID stays an error, and the Workspace contract now says where this machine records the selected Workspace and installed folders (#791)
