@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+## [0.240.0] - 2026-11-15
+
 - Changed `apkit install` and `apkit update` in a folder that holds a Mirrored Installation, and `apkit mirror` into a folder that holds a Profile Installation, to stop with a Decision that names the installation there and, with `--overwrite`, replace it, where they stopped with an error before (#806)
 - Added running `apkit mirror <from> [folder]` again in a folder that holds a mirror of `<from>`, which brings it level with `<from>`: it replaces and deletes only copies it wrote, a copy changed in the folder is a Decision settled by `--overwrite`, and a run with nothing to change says so (#805)
 - Changed `apkit status <folder>` on a Mirrored Installation to name the folder it mirrors, its Profile, and its agents, also with `--json` and with no Workspace selected, where it stopped with an error before (#807)
