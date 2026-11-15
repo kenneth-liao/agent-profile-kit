@@ -2,9 +2,10 @@ import { describe, expect, mock, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs/promises";
 import { chmod, lstat, readdir, readFile, readlink, rename, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findRepository, isTracked } from "../src/gitindex.js";
-import { execute, hash, plan, readManifest, readManifestAt, unresolved, type Decisions } from "../src/install.js";
+import { execute, hash, MirroredInstallationError, plan, readManifest, readManifestAt, readMirror, unresolved, type Decisions } from "../src/install.js";
 import { render, type AgentId } from "../src/render.js";
 import { executeNotes, noteTargets, planNotes } from "../src/setup.js";
 import { loadWorkspace } from "../src/workspace.js";
@@ -323,6 +324,55 @@ describe("manifest ingestion", () => {
       await expect(readManifest(target)).rejects.toThrow("is not a manifest this version understands");
     });
   }
+
+  const mirror = { schema: 2, mirror: join(tmpdir(), "main"), profile: "p", agents: ["codex"], files: { ".agents/skills/x/SKILL.md": H }, folders: [".agents/skills"] };
+
+  test("readMirror returns a mirror's record, and null for no manifest or a Profile Installation", async () => {
+    const target = await tempDir("target");
+    expect(await readMirror(target)).toBeNull();
+    await writeTree(target, { ".agents/apkit.json": JSON.stringify(valid) });
+    expect(await readMirror(target)).toBeNull();
+    await writeTree(target, { ".agents/apkit.json": JSON.stringify(mirror) });
+    expect(await readMirror(target)).toEqual(mirror as never);
+  });
+
+  test("readManifest never takes a mirror for a Profile Installation", async () => {
+    const target = await tempDir("target");
+    await writeTree(target, { ".agents/apkit.json": JSON.stringify(mirror) });
+    const error = await readManifest(target).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(MirroredInstallationError);
+    expect((error as Error).message).toBe(`${target} holds a Mirrored Installation of ${mirror.mirror}, not a Profile Installation. Nothing was changed.`);
+  });
+
+  test("a project manifest newer than a mirror's schema names the update", async () => {
+    const target = await tempDir("target");
+    await writeTree(target, { ".agents/apkit.json": JSON.stringify({ ...mirror, schema: 3 }) });
+    for (const read of [readManifest, readMirror]) await expect(read(target)).rejects.toThrow("was written by a newer apkit (schema 3; this apkit reads schema 2)");
+  });
+
+  for (const [label, change] of [
+    ["a relative mirrored folder", { mirror: "main" }],
+    ["no mirrored folder", { mirror: undefined }],
+    ["a file path that leaves the folder", { files: { "../x": H } }],
+    ["a hash that is not SHA-256", { files: { "a.md": "nope" } }],
+    ["an unknown agent", { agents: ["nobody"] }],
+    ["no folder record", { folders: undefined }],
+    ["a created folder that leaves the folder", { folders: ["../x"] }],
+    ["schema 2 without the mirror fields", { mirror: undefined, folders: undefined, block: null, createdAgentsMd: false, claudeImport: false }],
+  ] as const) {
+    test(`a mirror record with ${label} is refused`, async () => {
+      const target = await tempDir("target");
+      await writeTree(target, { ".agents/apkit.json": JSON.stringify({ ...mirror, ...change }) });
+      for (const read of [readManifest, readMirror]) await expect(read(target)).rejects.toThrow("is not a manifest this version understands");
+    });
+  }
+
+  test("the global manifest is read at schema 1 only", async () => {
+    const dir = await tempDir("home");
+    const path = join(dir, "global.json");
+    await writeFile(path, JSON.stringify({ ...mirror }));
+    await expect(readManifestAt(path, path, "user")).rejects.toThrow("was written by a newer apkit (schema 2; this apkit reads schema 1)");
+  });
 
   test("a project manifest's created folders are read back; the global manifest may not have any", async () => {
     const target = await tempDir("target");

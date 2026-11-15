@@ -49,7 +49,7 @@ A Profile Installation made with `install --global`: the Profile's Skills go in 
 _Avoid_: Global apply, Host-global second source
 
 **Installation Manifest**:
-The record that owns one Profile Installation: `.agents/apkit.json` in the install folder, or `global.json` in the apkit home for the User-Level Installation. It records the Profile, the Hosts, a content hash of each file apkit wrote, the hash of each Context Section, and, for a project install, the folders the install created, which are the only folders removal deletes. apkit replaces or deletes only what still matches its hash; anything else is a Decision (ADR-0056).
+The record that owns one Profile Installation or Mirrored Installation: `.agents/apkit.json` in the install folder, or `global.json` in the apkit home for the User-Level Installation. A mirror's record also names the folder it mirrors. It records the Profile, the Hosts, a content hash of each file apkit wrote, the hash of each Context Section, and, for a project install, the folders the install created, which are the only folders removal deletes. apkit replaces or deletes only what still matches its hash; anything else is a Decision (ADR-0056).
 _Avoid_: Installation Receipt, Installation State, Project Binding
 
 **Context Section**:

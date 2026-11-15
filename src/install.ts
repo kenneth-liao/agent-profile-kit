@@ -36,6 +36,34 @@ export interface Manifest {
   readonly folders?: readonly string[];
 }
 
+/**
+ * The Installation Manifest of a Mirrored Installation (ADR-0062). Schema 2, so an apkit that reads
+ * only schema 1 stops and names the update instead of taking it for a Profile Installation.
+ */
+export interface MirrorManifest {
+  readonly schema: 2;
+  /** The absolute path of the folder whose Profile Installation this mirrors. */
+  readonly mirror: string;
+  readonly profile: string;
+  readonly agents: readonly AgentId[];
+  /** POSIX path → content hash, for every file the mirror wrote. */
+  readonly files: Readonly<Record<string, string>>;
+  /** POSIX paths of the folders the mirror created, sorted. */
+  readonly folders: readonly string[];
+}
+
+const MIRROR_SCHEMA = 2;
+
+/** A folder that holds a Mirrored Installation was read as a Profile Installation. Nothing was changed. */
+export class MirroredInstallationError extends Error {
+  constructor(
+    readonly folder: string,
+    readonly mirror: string,
+  ) {
+    super(`${folder} holds a Mirrored Installation of ${mirror}, not a Profile Installation. Nothing was changed.`);
+  }
+}
+
 export type IssueKind =
   /** A change the user owns: an edit to AGENTS.md / CLAUDE.md, or taking over a file apkit did not write that has the same content (remove then deletes it). Allowed by `--yes`. */
   | "consent"
@@ -73,7 +101,7 @@ export interface Plan {
   readonly ops: readonly Op[];
   readonly issues: readonly Issue[];
   readonly instructions: readonly InstructionChange[];
-  readonly manifest: Manifest | null;
+  readonly manifest: Manifest | MirrorManifest | null;
   /** The manifest text on disk before the plan, or null. */
   readonly manifestBefore: string | null;
   /** Agent folders outside the target: pruning never goes above or removes one. */
@@ -153,8 +181,32 @@ async function outsideLink(target: string, path: string): Promise<{ link: string
   return null;
 }
 
+/** The Profile Installation in `target`, or null. A Mirrored Installation there throws MirroredInstallationError. */
 export async function readManifest(target: string): Promise<Manifest | null> {
-  return readManifestAt(abs(target, MANIFEST_PATH), `${MANIFEST_PATH} in ${target}`);
+  const found = await readInstallation(target);
+  if (found?.mirror !== undefined) throw new MirroredInstallationError(target, found.mirror.mirror);
+  return found?.manifest ?? null;
+}
+
+/**
+ * The Mirrored Installation record in `target`: which folder it mirrors, and what it wrote. Null when
+ * the folder holds no Installation Manifest or a Profile Installation. The one reader of that record.
+ */
+export async function readMirror(target: string): Promise<MirrorManifest | null> {
+  return (await readInstallation(target))?.mirror ?? null;
+}
+
+/** The project Installation Manifest in `target`, of either kind. Every field is checked. */
+async function readInstallation(target: string): Promise<{ manifest?: Manifest; mirror?: MirrorManifest } | null> {
+  const label = `${MANIFEST_PATH} in ${target}`;
+  const data = await readManifestJson(abs(target, MANIFEST_PATH), label, MIRROR_SCHEMA);
+  if (data === null) return null;
+  if (data.schema === MIRROR_SCHEMA) {
+    if (!isMirrorManifest(data)) throw new Error(`${label} is not a manifest this version understands.`);
+    return { mirror: data };
+  }
+  if (!isManifest(data, undefined)) throw new Error(`${label} is not a manifest this version understands.`);
+  return { manifest: data };
 }
 
 /**
@@ -162,16 +214,24 @@ export async function readManifest(target: string): Promise<Manifest | null> {
  * Every field is checked here, so planning never trusts a path or record it did not write.
  */
 export async function readManifestAt(path: string, label = path, scope?: "user"): Promise<Manifest | null> {
+  const data = await readManifestJson(path, label, 1);
+  if (data === null) return null;
+  if (!isManifest(data, scope)) throw new Error(`${label} is not a manifest this version understands.`);
+  return data;
+}
+
+/** The parsed manifest file, or null when there is none. Throws NewerSchemaError above `supported`. */
+async function readManifestJson(path: string, label: string, supported: number): Promise<Record<string, unknown> | null> {
   const text = await readText(path);
   if (text === null) return null;
-  let data: Manifest;
+  let data: unknown;
   try {
-    data = JSON.parse(text) as Manifest;
+    data = JSON.parse(text);
   } catch {
     throw new Error(`${label} is not a manifest this version understands: it is not valid JSON.`);
   }
-  refuseNewer(isRecord(data) ? data.schema : undefined, 1, label);
-  if (!isManifest(data, scope)) throw new Error(`${label} is not a manifest this version understands.`);
+  refuseNewer(isRecord(data) ? data.schema : undefined, supported, label);
+  if (!isRecord(data)) throw new Error(`${label} is not a manifest this version understands.`);
   return data;
 }
 
@@ -195,10 +255,31 @@ function isHomeRelativePath(path: string): boolean {
   return isInsidePath(path.replace(/^(\.\.\/)*/, ""));
 }
 
+function isAgentList(value: unknown): value is AgentId[] {
+  return Array.isArray(value) && value.every((agent) => typeof agent === "string" && isAgentId(agent));
+}
+
+function isFileRecords(value: unknown, isPath: (path: string) => boolean): value is Record<string, string> {
+  return isRecord(value) && Object.entries(value).every(([path, hashed]) => isPath(path) && typeof hashed === "string" && HASH.test(hashed));
+}
+
+function isMirrorManifest(data: Record<string, unknown>): data is MirrorManifest & Record<string, unknown> {
+  return (
+    data.schema === MIRROR_SCHEMA &&
+    typeof data.mirror === "string" &&
+    isAbsolute(data.mirror) &&
+    typeof data.profile === "string" &&
+    isAgentList(data.agents) &&
+    isFileRecords(data.files, isInsidePath) &&
+    Array.isArray(data.folders) &&
+    data.folders.every((path) => typeof path === "string" && isInsidePath(path))
+  );
+}
+
 function isManifest(data: unknown, scope: "user" | undefined): data is Manifest {
   if (!isRecord(data) || data.schema !== 1 || typeof data.profile !== "string") return false;
-  if (!Array.isArray(data.agents) || !data.agents.every((agent) => typeof agent === "string" && isAgentId(agent))) return false;
-  if (!isRecord(data.files) || !Object.entries(data.files).every(([path, value]) => (scope === "user" ? isHomeRelativePath(path) : isInsidePath(path)) && typeof value === "string" && HASH.test(value))) return false;
+  if (!isAgentList(data.agents)) return false;
+  if (!isFileRecords(data.files, scope === "user" ? isHomeRelativePath : isInsidePath)) return false;
   if (data.block !== null && !(typeof data.block === "string" && HASH.test(data.block))) return false;
   if (typeof data.createdAgentsMd !== "boolean" || typeof data.claudeImport !== "boolean") return false;
   if (data.context !== undefined && !(Array.isArray(data.context) && data.context.every((id) => typeof id === "string"))) return false;
@@ -216,6 +297,8 @@ export interface PlanOptions {
   readonly shared?: ReadonlySet<string>;
   /** Absolute agent folders outside the target (CLAUDE_CONFIG_DIR, GROK_HOME) that hold files of this install. */
   readonly pruneLimits?: readonly string[];
+  /** The folder a Mirrored Installation copies: the next manifest is its mirror record (ADR-0062). */
+  readonly mirror?: string;
 }
 
 /**
@@ -340,10 +423,12 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     folders = [...created].filter((dir) => holders.has(dir)).sort();
   }
 
-  const manifest: Manifest | null =
+  const manifest: Manifest | MirrorManifest | null =
     desired === null
       ? null
-      : {
+      : options.mirror !== undefined
+        ? { schema: MIRROR_SCHEMA, mirror: options.mirror, profile: desired.profile, agents: desired.agents, files, folders: folders ?? [] }
+        : {
           schema: 1,
           profile: desired.profile,
           agents: desired.agents,
@@ -390,7 +475,7 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
   return { target, manifestPath, ops, issues, instructions, manifest, manifestBefore, pruneLimits: options.pruneLimits ?? [], prune };
 }
 
-function manifestText(manifest: Manifest): string {
+function manifestText(manifest: Manifest | MirrorManifest): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 

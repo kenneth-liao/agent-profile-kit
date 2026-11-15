@@ -12,6 +12,7 @@ import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "
 import { changesManifest, readManifest, readManifestAt, MANIFEST_PATH, type Decisions, type InstructionChange, type Manifest } from "./install.js";
 import { removeGitExclude } from "./gitexclude.js";
 import { apply, globalTarget, planAt, previousAt, renderFor, trustNeeds, type Outcome, type Planned, type Target, type TrustNeed } from "./location.js";
+import { mirror } from "./mirror.js";
 import { migrate, oldStateFolder, type Migration, type MigrationRun, type OldGeneratedPart, type OldOutputOutcome, type WorkspaceRename } from "./migrate.js";
 import { AGENTS, isAgentId, type AgentId } from "./render.js";
 import { createdFiles, detectAgents, executeNotes, noteTargets, planNotes } from "./setup.js";
@@ -256,6 +257,7 @@ function nextArgs(outcome: Outcome, args: Args, mode: "apply" | "status"): strin
   const command = mode === "status" ? "update" : args.positional[0]!;
   const global = outcome.global === true;
   const result = command === "setup" ? [command]
+    : command === "mirror" ? [command, outcome.mirror!, outcome.folder]
     : command === "install" || (command === "update" && global)
       ? ["install", outcome.profile!, ...(global ? ["--global"] : [outcome.folder])]
       : [command, ...(global ? ["--global"] : [outcome.folder])];
@@ -293,6 +295,11 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
   switch (outcome.result) {
     case "installed":
       return written(`Installed ${what} ${at}.`);
+    case "mirrored":
+      return [
+        `Mirrored ${what} from ${display(outcome.mirror!)} into ${where} (${outcome.changed?.length ?? 0} files written).`,
+        "  Instruction files: left as they are. A mirror writes no AGENTS.md or CLAUDE.md.",
+      ].join("\n");
     case "updated":
       return mode === "status"
         ? `${where}: ${what} is out of date.\n${(outcome.changed ?? []).map((path) => `  - ${path}`).join("\n")}\n${nextCommand(nextArgs(outcome, args, mode))}`
@@ -523,7 +530,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /** Commands that can write. */
-const WRITES = new Set(["init", "workspace", "install", "update", "remove", "setup", "migrate"]);
+const WRITES = new Set(["init", "workspace", "install", "mirror", "update", "remove", "setup", "migrate"]);
 
 /**
  * Whether this run takes the lock. Taking it creates the apkit home, so a run that cannot write never
@@ -708,6 +715,17 @@ async function run(argv: readonly string[]): Promise<number> {
         trust,
         warnings: workspace.warnings,
       });
+      return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
+    }
+
+    case "mirror": {
+      // Reads only the named folder: no Workspace is needed, and its errors do not matter.
+      const named = args.positional[1];
+      if (named === undefined) throw new UsageError("Name the folder to mirror: `apkit mirror <from> [folder]`.");
+      const from = await folderArg(named);
+      const folder = await folderArg(args.positional[2]);
+      const { outcome, trust } = await mirror(from, folder, decisions);
+      print([describe(outcome, "apply", args), ...trustLines(trust, folder)].join("\n"), { ...outcome, trust });
       return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
     }
 

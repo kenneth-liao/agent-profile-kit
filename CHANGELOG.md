@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Added `apkit mirror <from> [folder]`, which gives a folder such as a worker's linked worktree real copies of the files `<from>` has installed, for every agent, with no Workspace needed, no instruction file written, and nothing new in `git status` (#802)
 - Fixed `install --global` and `setup` writing OpenCode's Context and note to `~/.claude/CLAUDE.md`, which OpenCode v2 does not read; they now always write OpenCode's own `~/.config/opencode/AGENTS.md` (created with consent), `update --all` moves an earlier global install there, and running `setup` again moves an earlier note (#798)
 
 ## [0.239.6] - 2026-11-12
