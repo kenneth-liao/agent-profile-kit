@@ -127,7 +127,9 @@ and the next manifest. `execute` runs only after every Decision is settled.
   `plan` and no Context, so it writes no instruction file, and settles the same
   Decisions. It writes no Repository Exclusion Contribution and no Local
   Configuration entry: in a linked worktree of `<from>`'s repository,
-  `<from>`'s block covers the same paths.
+  `<from>`'s block covers the same paths. Run again, it plans against the
+  mirror's own record as `previous`, so it replaces and deletes only copies it
+  wrote and prunes only folders it created.
 - **Decisions.** `consent` (an edit to `AGENTS.md`, `CLAUDE.md`, or a
   user-level instruction file, or taking over a file apkit did not write that
   already has the same content) and `outside` (a symlink would take a write or
