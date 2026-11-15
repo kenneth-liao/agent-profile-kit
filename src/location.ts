@@ -11,11 +11,13 @@ import {
   plan,
   readManifest,
   readManifestAt,
+  readMirror,
   unresolved,
   type Decisions,
   type InstructionChange,
   type Issue,
   type Manifest,
+  type MirrorManifest,
   type Plan,
 } from "./install.js";
 import { syncGitExclude } from "./gitexclude.js";
@@ -27,12 +29,16 @@ export interface Outcome {
   readonly folder: string;
   /** The global install (user level), as opposed to a project install in `folder`. */
   readonly global?: true;
-  readonly result: "installed" | "updated" | "removed" | "unchanged" | "needs-decision" | "not-installed" | "missing" | "error";
+  readonly result: "installed" | "mirrored" | "updated" | "removed" | "unchanged" | "needs-decision" | "not-installed" | "missing" | "error";
+  /** For a Mirrored Installation: the folder whose installation it copies. */
+  readonly mirror?: string;
   readonly profile?: string;
   readonly agents?: readonly AgentId[];
   readonly issues?: readonly Issue[];
   readonly instructions?: readonly InstructionChange[];
   readonly changed?: readonly string[];
+  /** For a Mirrored Installation run again: the copies it deleted, among `changed`; absent when none. */
+  readonly deleted?: readonly string[];
   readonly message?: string;
   /** Context Modules this project install shares with the global install (status only). */
   readonly overlap?: readonly string[];
@@ -61,26 +67,38 @@ export interface Planned {
 }
 
 /**
- * Plans one location. The home folder can hold a project install and the global
+ * The files the other installation at this location also owns, which a plan here never deletes.
+ * The home folder can hold a project install (a Profile or Mirrored Installation) and the global
  * install at once: each keeps its own manifest and never deletes the other's files.
  */
-export async function planAt(target: Target, desired: Desired | null, previous: Manifest | null): Promise<Planned> {
+export async function sharedAt(target: Target): Promise<Set<string>> {
   const home = await realpath(homedir());
+  // A Mirrored Installation in the home folder owns its files as a Profile Installation does.
+  const other = target.global
+    ? ((await readMirror(home)) ?? (await readManifest(home)))
+    : target.folder === home
+      ? await previousAt(await globalTarget())
+      : null;
+  return new Set(Object.keys(other?.files ?? {}));
+}
+
+/** Plans one location, never deleting a file the other installation there also owns (`sharedAt`). */
+export async function planAt(target: Target, desired: Desired | null, previous: Manifest | MirrorManifest | null): Promise<Planned> {
+  const shared = await sharedAt(target);
   if (!target.global) {
-    const other = target.folder === home ? await previousAt(await globalTarget()) : null;
-    const files = await plan(target.folder, desired, previous, { shared: new Set(Object.keys(other?.files ?? {})) });
+    const files = await plan(target.folder, desired, previous, { shared });
     return { files, sections: null, issues: files.issues, paths: files.ops.map((op) => op.path) };
   }
-  const project = await readManifest(home);
+  const home = await realpath(homedir());
   const planned = await plan(home, desired, previous, {
     manifestPath: globalManifestPath(),
-    shared: new Set(Object.keys(project?.files ?? {})),
+    shared,
     pruneLimits: agentFoldersOutside(home),
   });
   const body = desired?.context ?? null;
   const targets = body === null ? [] : await noteTargets(desired?.agents ?? [], homedir(), process.env);
   const notes = (await readConfig()).notes;
-  const sections = await planSections(targets, previous?.sections ?? {}, contextSection(body ?? ""), createdFiles(notes));
+  const sections = await planSections(targets, (previous?.schema === 1 ? previous.sections : undefined) ?? {}, contextSection(body ?? ""), createdFiles(notes));
   const files = planned.manifest === null ? planned : { ...planned, manifest: { ...planned.manifest, sections: sections.records } };
   return {
     files,
@@ -93,7 +111,7 @@ export async function planAt(target: Target, desired: Desired | null, previous: 
 export async function apply(
   target: Target,
   desired: Desired | null,
-  previous: Manifest | null,
+  previous: Manifest | MirrorManifest | null,
   decisions: Decisions,
 ): Promise<Outcome> {
   const { folder, global } = target;
@@ -117,7 +135,8 @@ export async function apply(
   await execute(planned.files);
   if (!global) await recordInstall(folder, desired !== null, exclusion);
   const changed = [...new Set(planned.paths)];
-  const result = desired === null ? "removed" : previous === null ? "installed" : "updated";
+  // A Mirrored Installation it replaces was no Profile Installation (ISC-103).
+  const result = desired === null ? "removed" : previous === null || previous.schema === 2 ? "installed" : "updated";
   return { ...base, result, changed };
 }
 

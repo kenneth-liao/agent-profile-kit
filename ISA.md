@@ -461,47 +461,50 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   `docs/ARCHITECTURE.md` Verified Locations table needs trust without a line,
   or a line for a Host that does not need trust, fails. bash
 
-- [ ] **ISC-96:** One command gives a folder the same Profile Installation as
+- [x] **ISC-96:** One command gives a folder the same Profile Installation as
   a named folder: the same Profile, every Host of that folder, and installed
   files that are byte-for-byte the same.
   Probe: packed CLI; mirror a folder whose installation is behind the
   Workspace into a linked worktree; an installed file that differs from the
   named folder's, a missing Host, or a second command, fails. bash
-- [ ] **ISC-97:** **Anti:** A Mirrored Installation never changes a file that
+- [x] **ISC-97:** **Anti:** A Mirrored Installation never changes a file that
   Git tracks in its folder.
   Probe: mirror into a linked worktree whose tracked `AGENTS.md` has an older
   Context Section than the named folder's; any line of `git status --porcelain`
   for a tracked file fails. bash
-- [ ] **ISC-98:** **Anti:** A Mirrored Installation holds no symbolic link.
+- [x] **ISC-98:** **Anti:** A Mirrored Installation holds no symbolic link.
   Probe: walk every path the mirror created; any symbolic link fails. bash
-- [ ] **ISC-99:** **Anti:** A Mirrored Installation adds no untracked entry to
+- [x] **ISC-99:** **Anti:** A Mirrored Installation adds no untracked entry to
   its folder's `git status`.
   Probe: compare `git status --porcelain` in the linked worktree before and
   after the mirror; any new untracked entry fails. bash
-- [ ] **ISC-100:** **Anti:** A Mirrored Installation leaves no record outside
+- [x] **ISC-100:** **Anti:** A Mirrored Installation leaves no record outside
   its folder that outlives the folder.
   Probe: mirror into a linked worktree, run `git worktree remove --force`, and
   run no apkit command; the folder in `status --all`, in Local Configuration,
   or in the repository's exclude file fails. bash
-- [ ] **ISC-101:** **Anti:** `status --all` and `update --all` never list or
+- [x] **ISC-101:** **Anti:** `status --all` and `update --all` never list or
   change a Mirrored Installation.
   Probe: mirror, change the Workspace, then run both; the mirror listed, or
   any of its files changed, fails. bash
-- [ ] **ISC-102:** **Anti:** A change to the named folder's installation never
+- [x] **ISC-102:** **Anti:** A change to the named folder's installation never
   changes an existing Mirrored Installation, and the same command run again
   brings the mirror level with the named folder.
   Probe: update the named folder and compare the mirror before and after; any
   change fails. Then run the mirror command again; any installed file that
   differs from the named folder's fails. bash
-- [ ] **ISC-103:** **Anti:** `install` or `update` in a folder that holds a
+- [x] **ISC-103:** **Anti:** `install` or `update` in a folder that holds a
   Mirrored Installation changes nothing without the user's Decision.
   Probe: run each without the Decision; any changed file, an exit status other
   than 3, or output that does not name the folder the installation mirrors,
   fails. bash
-- [ ] **ISC-104:** `status` for a folder that holds a Mirrored Installation
+- [x] **ISC-104:** `status` for a folder that holds a Mirrored Installation
   names the folder it mirrors.
   Probe: `status <folder>` after a mirror; output without the named folder
   fails. bash
+  Verification: `test/cli.test.ts` "status names the folder a Mirrored
+  Installation mirrors, its Profile, and its agents, and never reads the
+  Workspace".
 
 ## Not yet specified
 
@@ -860,3 +863,11 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-93: `test/cli.test.ts` "with unmigrated old state, every command names `apkit migrate`, and none changes the old state"
 - ISC-94: `test/cli.test.ts` "install and update leave every file and folder unchanged"
 - ISC-95: `test/cli.test.ts` "an install names each selected agent that needs the folder trusted, and what waits for it"; values match the Verified Locations trust column
+- ISC-96: `test/cli.test.ts` "one mirror gives a linked worktree the named folder's installed files byte for byte, for every agent, also when that installation is behind the Workspace" (all six agents; also with `APKIT_CLI=dist/cli.js`)
+- ISC-97: `test/cli.test.ts` "a mirror changes no tracked file and writes no AGENTS.md or CLAUDE.md, also when the tracked AGENTS.md has an older Context Section" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-98: `test/cli.test.ts` "no path a mirror creates is a symbolic link" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-99: `test/cli.test.ts` "a mirror adds no untracked entry to the linked worktree's git status" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-100: `test/cli.test.ts` "a mirror leaves no record outside its folder: after git worktree remove --force and no apkit command, the folder is in no status --all, Local Configuration, or exclude file" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-101: `test/cli.test.ts` "status --all and update --all never list or change a mirror" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-102: `test/cli.test.ts` "a change to the named folder's installation never changes an existing mirror"; "the same mirror command run again brings the mirror level with the named folder, and says what changed"; supported by "running mirror again deletes a copy the named folder no longer has, with the folders that become empty, and nothing else" and "a copy changed in a mirrored folder is a Decision: nothing changes, exit 3, and the Next line carries --overwrite" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-103: `test/cli.test.ts` "install or update in a folder that holds a Mirrored Installation changes nothing without the Decision, exits 3, and names the folder it mirrors" (also with `APKIT_CLI=dist/cli.js`)

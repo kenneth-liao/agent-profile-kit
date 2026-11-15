@@ -16,6 +16,7 @@ export const COMMANDS: Readonly<Record<string, { readonly options: readonly stri
   setup: { options: ["--agents", "--remove", "--yes", "--overwrite", "--json"], arguments: 0 },
   check: { options: ["--workspace", "--json"], arguments: 0 },
   install: { options: ["--agents", "--global", "--yes", "--overwrite", "--workspace", "--json"], arguments: 2 },
+  mirror: { options: ["--yes", "--overwrite", "--json"], arguments: 2 },
   update: { options: ["--all", "--yes", "--overwrite", "--workspace", "--json"], arguments: 1 },
   remove: { options: ["--global", "--yes", "--overwrite", "--json"], arguments: 1 },
   status: { options: ["--all", "--global", "--workspace", "--json"], arguments: 1 },

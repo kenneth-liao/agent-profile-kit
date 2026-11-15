@@ -9,9 +9,10 @@ import { COMMANDS } from "./command.js";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { display, groupedWarning, nextCommand } from "./output.js";
 import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "./guide.js";
-import { changesManifest, readManifest, readManifestAt, MANIFEST_PATH, type Decisions, type InstructionChange, type Manifest } from "./install.js";
+import { changesManifest, readManifest, readManifestAt, readMirror, MANIFEST_PATH, type Decisions, type InstructionChange, type Manifest } from "./install.js";
 import { removeGitExclude } from "./gitexclude.js";
 import { apply, globalTarget, planAt, previousAt, renderFor, trustNeeds, type Outcome, type Planned, type Target, type TrustNeed } from "./location.js";
+import { mirror, removeMirror } from "./mirror.js";
 import { migrate, oldStateFolder, type Migration, type MigrationRun, type OldGeneratedPart, type OldOutputOutcome, type WorkspaceRename } from "./migrate.js";
 import { AGENTS, isAgentId, type AgentId } from "./render.js";
 import { createdFiles, detectAgents, executeNotes, noteTargets, planNotes } from "./setup.js";
@@ -208,6 +209,17 @@ async function statusOf(workspace: Workspace, target: Target): Promise<Outcome> 
   return { ...base, result: "unchanged" };
 }
 
+/**
+ * The status of a Mirrored Installation in `target`: the folder it mirrors, its Profile, and its agents
+ * (ISC-104). Null for anything else, and for a record that cannot be read, so `statusOf` reports that as before.
+ */
+async function mirrorStatus(target: Target): Promise<Outcome | null> {
+  if (target.global) return null;
+  const record = await readMirror(target.folder).catch(() => null);
+  if (record === null) return null;
+  return { folder: target.folder, mirror: record.mirror, profile: record.profile, agents: record.agents, result: "mirrored" };
+}
+
 /** The Context Modules a project install shares with the global install. A newer global manifest is reported elsewhere. */
 async function overlapWithGlobal(project: Manifest): Promise<string[]> {
   const global = await readManifestAt(globalManifestPath(), globalManifestPath(), "user").catch((error: unknown) => {
@@ -256,6 +268,7 @@ function nextArgs(outcome: Outcome, args: Args, mode: "apply" | "status"): strin
   const command = mode === "status" ? "update" : args.positional[0]!;
   const global = outcome.global === true;
   const result = command === "setup" ? [command]
+    : command === "mirror" ? [command, outcome.mirror!, outcome.folder]
     : command === "install" || (command === "update" && global)
       ? ["install", outcome.profile!, ...(global ? ["--global"] : [outcome.folder])]
       : [command, ...(global ? ["--global"] : [outcome.folder])];
@@ -266,7 +279,7 @@ function nextArgs(outcome: Outcome, args: Args, mode: "apply" | "status"): strin
   }
   if (result[0] === "install" && !args.flags.has("--agents")) result.push("--agents", outcome.agents!.join(","));
   if (outcome.issues?.some((i) => i.kind === "consent" || i.kind === "outside") && !result.includes("--yes")) result.push("--yes");
-  if (outcome.issues?.some((i) => i.kind === "changed" || i.kind === "unowned") && !result.includes("--overwrite")) result.push("--overwrite");
+  if (outcome.issues?.some((i) => i.kind === "changed" || i.kind === "unowned" || i.kind === "installation") && !result.includes("--overwrite")) result.push("--overwrite");
   return result;
 }
 
@@ -274,6 +287,7 @@ const DONE = { create: "created", change: "changed", delete: "deleted" } as cons
 
 /** One instruction file, what happens (or happened) to it, and whether Git tracks it (ISC-86). */
 function instructionLine(file: InstructionChange, when: "planned" | "done"): string {
+  if (file.action === "leave") return `${file.path}: left as it is, because Git tracks it.`;
   return `${file.path}: ${when === "planned" ? "will be " : ""}${DONE[file.action]}; ${file.tracked ? "tracked" : "not tracked"} by Git.`;
 }
 
@@ -293,13 +307,23 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
   switch (outcome.result) {
     case "installed":
       return written(`Installed ${what} ${at}.`);
+    case "mirrored":
+      if (mode === "status") return `${where}: ${what} is a Mirrored Installation of ${display(outcome.mirror!)}.`;
+      return [
+        `Mirrored ${what} from ${display(outcome.mirror!)} into ${where} (${(outcome.changed?.length ?? 0) - (outcome.deleted?.length ?? 0)} files written${outcome.deleted ? `, ${outcome.deleted.length} deleted` : ""}).`,
+        // Only a Profile Installation it replaced leaves instruction-file changes (ISC-103).
+        ...(outcome.instructions?.length
+          ? changedInstructionLines(outcome.instructions)
+          : ["  Instruction files: left as they are. A mirror writes no AGENTS.md or CLAUDE.md."]),
+      ].join("\n");
     case "updated":
       return mode === "status"
         ? `${where}: ${what} is out of date.\n${(outcome.changed ?? []).map((path) => `  - ${path}`).join("\n")}\n${nextCommand(nextArgs(outcome, args, mode))}`
         : written(`Updated ${what} ${at} (${outcome.changed?.length ?? 0} changed).`);
     case "removed":
-      return written(`Removed ${what} ${from}.`);
+      return outcome.mirror === undefined ? written(`Removed ${what} ${from}.`) : `Removed the mirror of ${display(outcome.mirror)} (${what}) ${from}.`;
     case "unchanged":
+      if (outcome.mirror !== undefined) return `${where}: ${what} is already the same as ${display(outcome.mirror)}. Nothing changed.`;
       return mode === "status" ? `${where}: ${what} is up to date.` : `${where}: ${what} is already up to date.`;
     case "not-installed":
       return `${where}: nothing installed.`;
@@ -523,7 +547,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /** Commands that can write. */
-const WRITES = new Set(["init", "workspace", "install", "update", "remove", "setup", "migrate"]);
+const WRITES = new Set(["init", "workspace", "install", "mirror", "update", "remove", "setup", "migrate"]);
 
 /**
  * Whether this run takes the lock. Taking it creates the apkit home, so a run that cannot write never
@@ -560,7 +584,19 @@ async function main(argv: readonly string[]): Promise<number> {
   unmigrated = (await exists(state)) ? state : null;
   // Before the lock, so a rejected option or argument writes nothing.
   if (!args.flags.has("--help")) checkUsage(command, args);
+  if (command === "mirror" && !args.flags.has("--help")) await refuseSelfMirror(args);
   return locks(command, args) ? withLock(configHome(), () => run(argv)) : run(argv);
+}
+
+/** A mirror into the folder it mirrors is a usage error, refused before the lock so nothing is written. */
+async function refuseSelfMirror(args: Args): Promise<void> {
+  const named = args.positional[1];
+  if (named === undefined) return;
+  const from = await folderArg(named);
+  if (from !== (await folderArg(args.positional[2]))) return;
+  throw new UsageError(
+    `${display(from)} is the folder to mirror and the folder to fill. A mirror goes into another folder: \`${COMMAND} mirror <from> [folder]\`. Nothing was changed.`,
+  );
 }
 
 async function run(argv: readonly string[]): Promise<number> {
@@ -698,7 +734,8 @@ async function run(argv: readonly string[]): Promise<number> {
       const target = global ? await globalTarget() : { folder: await folderArg(args.positional[2]) };
       const workspace = await workspaceFor(args);
       requireValid(workspace);
-      const previous = await previousAt(target);
+      // A Mirrored Installation here is replaced only by the user's Decision (ISC-103).
+      const previous = (global ? null : await readMirror(target.folder)) ?? (await previousAt(target));
       const agents = agentsFlag(args, previous?.profile === profile ? previous.agents : undefined);
       const desired = renderFor(workspace, profile, agents, global ? "user" : undefined);
       const outcome = await apply(target, desired, previous, decisions);
@@ -711,11 +748,32 @@ async function run(argv: readonly string[]): Promise<number> {
       return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
     }
 
+    case "mirror": {
+      // Reads only the named folder: no Workspace is needed, and its errors do not matter.
+      const named = args.positional[1];
+      if (named === undefined) throw new UsageError("Name the folder to mirror: `apkit mirror <from> [folder]`.");
+      const from = await folderArg(named);
+      const folder = await folderArg(args.positional[2]);
+      const { outcome, trust } = await mirror(from, folder, decisions);
+      print([describe(outcome, "apply", args), ...trustLines(trust, folder)].join("\n"), { ...outcome, trust });
+      return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
+    }
+
     case "update": {
       const workspace = await workspaceFor(args);
       requireValid(workspace);
       const outcomes: Outcome[] = [];
       for (const target of await targets(args)) {
+        // A Mirrored Installation in the named folder becomes a Profile Installation only by the user's Decision (ISC-103).
+        const mirrored = target.global || args.flags.has("--all") ? null : await readMirror(target.folder);
+        if (mirrored !== null) {
+          outcomes.push(
+            workspace.profiles.has(mirrored.profile)
+              ? await apply(target, renderFor(workspace, mirrored.profile, mirrored.agents), mirrored, decisions)
+              : { folder: target.folder, result: "error", message: `Profile '${mirrored.profile}' is no longer in the Workspace.` },
+          );
+          continue;
+        }
         const status = await statusOf(workspace, target);
         // A deleted folder is forgotten, with its exclusion block, as `remove` would.
         if (status.result === "missing" && !target.global) await forget(target.folder);
@@ -752,6 +810,12 @@ async function run(argv: readonly string[]): Promise<number> {
         return EXIT.ok;
       }
       const folder = await realpath(path);
+      const mirrored = await readMirror(folder);
+      if (mirrored !== null) {
+        const outcome = await removeMirror(folder, mirrored, decisions);
+        print(describe(outcome, "apply", args), outcome);
+        return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
+      }
       const previous = await readManifest(folder);
       if (previous === null) {
         await recordInstall(folder, false);
@@ -799,10 +863,14 @@ async function run(argv: readonly string[]): Promise<number> {
       return migrateCommand(args, decisions, json);
 
     case "status": {
-      const workspace = await workspaceFor(args);
+      // A Mirrored Installation's status reads only its record: with only mirrors selected, the Workspace is not loaded.
+      const selected = await targets(args);
+      const mirrored = await Promise.all(selected.map(mirrorStatus));
+      const workspace = selected.length > 0 && mirrored.every((m) => m !== null) ? undefined : await workspaceFor(args);
       const outcomes: Outcome[] = [];
-      for (const target of await targets(args)) outcomes.push(await statusOf(workspace, target));
-      print([describeOutcomes(outcomes, "status", args), ...warningLines(workspace)].join("\n"), withWarnings(outcomes, workspace));
+      for (const [i, target] of selected.entries()) outcomes.push(mirrored[i] ?? (await statusOf(workspace!, target)));
+      const warnings = workspace === undefined ? [] : warningLines(workspace);
+      print([describeOutcomes(outcomes, "status", args), ...warnings].join("\n"), workspace === undefined ? { results: outcomes } : withWarnings(outcomes, workspace));
       return EXIT.ok;
     }
 

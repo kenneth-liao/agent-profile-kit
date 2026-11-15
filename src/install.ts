@@ -6,7 +6,8 @@ import { chmod, lstat, mkdir, readdir, readFile, readlink, realpath, rename, rmd
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isTracked } from "./gitindex.js";
 import { addClaudeImport, hasClaudeImport, readBlock, removeClaudeImport, writeBlock } from "./instructions.js";
-import { isAgentId, type AgentId, type Desired } from "./render.js";
+import { display } from "./output.js";
+import { AGENTS, isAgentId, type AgentId, type Desired } from "./render.js";
 import type { NoteRecords } from "./setup.js";
 import { refuseNewer } from "./schema.js";
 
@@ -36,6 +37,34 @@ export interface Manifest {
   readonly folders?: readonly string[];
 }
 
+/**
+ * The Installation Manifest of a Mirrored Installation (ADR-0062). Schema 2, so an apkit that reads
+ * only schema 1 stops and names the update instead of taking it for a Profile Installation.
+ */
+export interface MirrorManifest {
+  readonly schema: 2;
+  /** The absolute path of the folder whose Profile Installation this mirrors. */
+  readonly mirror: string;
+  readonly profile: string;
+  readonly agents: readonly AgentId[];
+  /** POSIX path → content hash, for every file the mirror wrote. */
+  readonly files: Readonly<Record<string, string>>;
+  /** POSIX paths of the folders the mirror created, sorted. */
+  readonly folders: readonly string[];
+}
+
+const MIRROR_SCHEMA = 2;
+
+/** A folder that holds a Mirrored Installation was read as a Profile Installation. Nothing was changed. */
+export class MirroredInstallationError extends Error {
+  constructor(
+    readonly folder: string,
+    readonly mirror: string,
+  ) {
+    super(`${folder} holds a Mirrored Installation of ${mirror}, not a Profile Installation. Nothing was changed.`);
+  }
+}
+
 export type IssueKind =
   /** A change the user owns: an edit to AGENTS.md / CLAUDE.md, or taking over a file apkit did not write that has the same content (remove then deletes it). Allowed by `--yes`. */
   | "consent"
@@ -44,7 +73,9 @@ export type IssueKind =
   /** A file apkit did not write is in the way. Replaced only with `--overwrite`. */
   | "unowned"
   /** A symlink would take writes or deletions outside the target. Allowed by `--yes`. */
-  | "outside";
+  | "outside"
+  /** The folder holds the other kind of installation, which the plan replaces. Replaced only with `--overwrite`. */
+  | "installation";
 
 export interface Issue {
   readonly kind: IssueKind;
@@ -61,7 +92,8 @@ type Op =
 /** What the plan does to one instruction file, so the user can decide before it happens (ISC-86). */
 export interface InstructionChange {
   readonly path: "AGENTS.md" | "CLAUDE.md";
-  readonly action: "create" | "change" | "delete";
+  /** "leave": a mirror leaves a file Git tracks as it is, with what a Profile Installation put in it. */
+  readonly action: "create" | "change" | "delete" | "leave";
   /** Whether Git tracks the file. */
   readonly tracked: boolean;
 }
@@ -73,7 +105,7 @@ export interface Plan {
   readonly ops: readonly Op[];
   readonly issues: readonly Issue[];
   readonly instructions: readonly InstructionChange[];
-  readonly manifest: Manifest | null;
+  readonly manifest: Manifest | MirrorManifest | null;
   /** The manifest text on disk before the plan, or null. */
   readonly manifestBefore: string | null;
   /** Agent folders outside the target: pruning never goes above or removes one. */
@@ -153,8 +185,32 @@ async function outsideLink(target: string, path: string): Promise<{ link: string
   return null;
 }
 
+/** The Profile Installation in `target`, or null. A Mirrored Installation there throws MirroredInstallationError. */
 export async function readManifest(target: string): Promise<Manifest | null> {
-  return readManifestAt(abs(target, MANIFEST_PATH), `${MANIFEST_PATH} in ${target}`);
+  const found = await readInstallation(target);
+  if (found?.mirror !== undefined) throw new MirroredInstallationError(target, found.mirror.mirror);
+  return found?.manifest ?? null;
+}
+
+/**
+ * The Mirrored Installation record in `target`: which folder it mirrors, and what it wrote. Null when
+ * the folder holds no Installation Manifest or a Profile Installation. The one reader of that record.
+ */
+export async function readMirror(target: string): Promise<MirrorManifest | null> {
+  return (await readInstallation(target))?.mirror ?? null;
+}
+
+/** The project Installation Manifest in `target`, of either kind. Every field is checked. */
+async function readInstallation(target: string): Promise<{ manifest?: Manifest; mirror?: MirrorManifest } | null> {
+  const label = `${MANIFEST_PATH} in ${target}`;
+  const data = await readManifestJson(abs(target, MANIFEST_PATH), label, MIRROR_SCHEMA);
+  if (data === null) return null;
+  if (data.schema === MIRROR_SCHEMA) {
+    if (!isMirrorManifest(data)) throw new Error(`${label} is not a manifest this version understands.`);
+    return { mirror: data };
+  }
+  if (!isManifest(data, undefined)) throw new Error(`${label} is not a manifest this version understands.`);
+  return { manifest: data };
 }
 
 /**
@@ -162,16 +218,24 @@ export async function readManifest(target: string): Promise<Manifest | null> {
  * Every field is checked here, so planning never trusts a path or record it did not write.
  */
 export async function readManifestAt(path: string, label = path, scope?: "user"): Promise<Manifest | null> {
+  const data = await readManifestJson(path, label, 1);
+  if (data === null) return null;
+  if (!isManifest(data, scope)) throw new Error(`${label} is not a manifest this version understands.`);
+  return data;
+}
+
+/** The parsed manifest file, or null when there is none. Throws NewerSchemaError above `supported`. */
+async function readManifestJson(path: string, label: string, supported: number): Promise<Record<string, unknown> | null> {
   const text = await readText(path);
   if (text === null) return null;
-  let data: Manifest;
+  let data: unknown;
   try {
-    data = JSON.parse(text) as Manifest;
+    data = JSON.parse(text);
   } catch {
     throw new Error(`${label} is not a manifest this version understands: it is not valid JSON.`);
   }
-  refuseNewer(isRecord(data) ? data.schema : undefined, 1, label);
-  if (!isManifest(data, scope)) throw new Error(`${label} is not a manifest this version understands.`);
+  refuseNewer(isRecord(data) ? data.schema : undefined, supported, label);
+  if (!isRecord(data)) throw new Error(`${label} is not a manifest this version understands.`);
   return data;
 }
 
@@ -195,10 +259,31 @@ function isHomeRelativePath(path: string): boolean {
   return isInsidePath(path.replace(/^(\.\.\/)*/, ""));
 }
 
+function isAgentList(value: unknown): value is AgentId[] {
+  return Array.isArray(value) && value.every((agent) => typeof agent === "string" && isAgentId(agent));
+}
+
+function isFileRecords(value: unknown, isPath: (path: string) => boolean): value is Record<string, string> {
+  return isRecord(value) && Object.entries(value).every(([path, hashed]) => isPath(path) && typeof hashed === "string" && HASH.test(hashed));
+}
+
+function isMirrorManifest(data: Record<string, unknown>): data is MirrorManifest & Record<string, unknown> {
+  return (
+    data.schema === MIRROR_SCHEMA &&
+    typeof data.mirror === "string" &&
+    isAbsolute(data.mirror) &&
+    typeof data.profile === "string" &&
+    isAgentList(data.agents) &&
+    isFileRecords(data.files, isInsidePath) &&
+    Array.isArray(data.folders) &&
+    data.folders.every((path) => typeof path === "string" && isInsidePath(path))
+  );
+}
+
 function isManifest(data: unknown, scope: "user" | undefined): data is Manifest {
   if (!isRecord(data) || data.schema !== 1 || typeof data.profile !== "string") return false;
-  if (!Array.isArray(data.agents) || !data.agents.every((agent) => typeof agent === "string" && isAgentId(agent))) return false;
-  if (!isRecord(data.files) || !Object.entries(data.files).every(([path, value]) => (scope === "user" ? isHomeRelativePath(path) : isInsidePath(path)) && typeof value === "string" && HASH.test(value))) return false;
+  if (!isAgentList(data.agents)) return false;
+  if (!isFileRecords(data.files, scope === "user" ? isHomeRelativePath : isInsidePath)) return false;
   if (data.block !== null && !(typeof data.block === "string" && HASH.test(data.block))) return false;
   if (typeof data.createdAgentsMd !== "boolean" || typeof data.claudeImport !== "boolean") return false;
   if (data.context !== undefined && !(Array.isArray(data.context) && data.context.every((id) => typeof id === "string"))) return false;
@@ -216,15 +301,23 @@ export interface PlanOptions {
   readonly shared?: ReadonlySet<string>;
   /** Absolute agent folders outside the target (CLAUDE_CONFIG_DIR, GROK_HOME) that hold files of this install. */
   readonly pruneLimits?: readonly string[];
+  /** The folder a Mirrored Installation copies: the next manifest is its mirror record (ADR-0062). */
+  readonly mirror?: string;
 }
 
 /**
  * Plans an install or update (desired) or a removal (desired null). Writes nothing.
  * A user-level install's Context goes in user-level files (see setup.ts), not in the target's AGENTS.md.
  */
-export async function plan(target: string, desired: Desired | null, previous: Manifest | null, options: PlanOptions = {}): Promise<Plan> {
+export async function plan(target: string, desired: Desired | null, recorded: Manifest | MirrorManifest | null, options: PlanOptions = {}): Promise<Plan> {
+  // A mirror's record has no instruction-file fields: it wrote no AGENTS.md or CLAUDE.md.
+  const previous: Manifest | null = recorded?.schema === MIRROR_SCHEMA ? { ...recorded, schema: 1, block: null, createdAgentsMd: false, claudeImport: false } : recorded;
   const ops: Op[] = [];
   const issues: Issue[] = [];
+  // The other kind of installation is there: replacing it is the user's Decision (ISC-103).
+  if (desired !== null && recorded !== null && (recorded.schema === MIRROR_SCHEMA) !== (options.mirror !== undefined)) {
+    issues.push({ kind: "installation", path: MANIFEST_PATH, message: replacing(recorded, options.mirror) });
+  }
   const files: Record<string, string> = {};
   const owned = previous?.files ?? {};
   const shared = options.shared ?? new Set<string>();
@@ -237,7 +330,10 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
       issues.push({ kind: "unowned", path, message: `${path} is a folder where apkit needs a file.` });
       continue;
     }
-    if (disk !== null && hash(disk) === want) {
+    // A mirror copies the bytes as they are (DEC-002): only the same bytes are the same file.
+    // Ownership and edits keep the line-ending-normalized hash.
+    const same = disk !== null && (options.mirror !== undefined ? Buffer.from(disk).equals(Buffer.from(file.bytes)) : hash(disk) === want);
+    if (same) {
       // Same bytes, but apkit did not write them: taking the file over is the user's decision,
       // because remove then deletes it. A file another install here owns is apkit's already.
       if (owned[path] === undefined && !shared.has(path)) {
@@ -324,13 +420,22 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     ops.push({ type: "text", path: "CLAUDE.md", absolute: claudePath, text: remaining });
   }
 
+  // A mirror never changes a file Git tracks (ISC-97): what a Profile Installation put in one stays as it is.
+  const left = new Set<string>();
+  if (options.mirror !== undefined) {
+    for (const op of ops) if (op.type === "text" && (await isTracked(target, op.path))) left.add(op.path);
+    ops.splice(0, ops.length, ...ops.filter((op) => op.type !== "text" || !left.has(op.path)));
+    issues.splice(0, issues.length, ...issues.filter((issue) => !left.has(issue.path)));
+  }
+
   // The Project folders this install created: what it created before, and what its writes create now.
   // A folder that was there first is the user's, and stays out. User-level installs keep no record.
   const project = (desired?.scope ?? previous?.scope) === undefined;
   const recording = project && (previous === null || previous.folders !== undefined);
   const manifestPath = options.manifestPath ?? abs(target, MANIFEST_PATH);
   let folders: string[] | undefined;
-  if (recording && desired !== null) {
+  // A mirror always keeps the record, also over a Profile Installation whose manifest has none.
+  if (desired !== null && (recording || (project && options.mirror !== undefined))) {
     const created = new Set(previous?.folders ?? []);
     for (const path of [...ops.flatMap((op) => (op.type === "write" ? [abs(target, op.path)] : [])), manifestPath]) {
       for (const dir of await missingFolders(path)) if (isInside(target, dir) && dir !== target) created.add(relative(target, dir).split(sep).join("/"));
@@ -340,10 +445,12 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     folders = [...created].filter((dir) => holders.has(dir)).sort();
   }
 
-  const manifest: Manifest | null =
+  const manifest: Manifest | MirrorManifest | null =
     desired === null
       ? null
-      : {
+      : options.mirror !== undefined
+        ? { schema: MIRROR_SCHEMA, mirror: options.mirror, profile: desired.profile, agents: desired.agents, files, folders: folders ?? [] }
+        : {
           schema: 1,
           profile: desired.profile,
           agents: desired.agents,
@@ -385,12 +492,23 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     const action = before === null ? "create" : op.text === null ? "delete" : "change";
     instructions.push({ path, action, tracked: await isTracked(target, path) });
   }
+  for (const path of left) instructions.push({ path: path as InstructionChange["path"], action: "leave", tracked: true });
+  instructions.sort((a, b) => a.path.localeCompare(b.path));
 
   const prune = recording ? (previous?.folders ?? []).map((dir) => abs(target, dir)) : null;
   return { target, manifestPath, ops, issues, instructions, manifest, manifestBefore, pruneLimits: options.pruneLimits ?? [], prune };
 }
 
-function manifestText(manifest: Manifest): string {
+/** The Decision's message when a plan replaces the other kind of installation (ISC-103). */
+function replacing(recorded: Manifest | MirrorManifest, mirror: string | undefined): string {
+  if (recorded.schema === MIRROR_SCHEMA) {
+    return `This folder holds a Mirrored Installation of ${display(recorded.mirror)}. apkit replaces it with a Profile Installation.`;
+  }
+  const agents = recorded.agents.map((id) => AGENTS[id].name).join(", ");
+  return `This folder holds a Profile Installation of '${recorded.profile}' for ${agents}. apkit replaces it with a Mirrored Installation of ${display(mirror!)}.`;
+}
+
+function manifestText(manifest: Manifest | MirrorManifest): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 

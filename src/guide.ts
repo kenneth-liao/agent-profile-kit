@@ -35,6 +35,8 @@ Usage:
                                          Install a Profile (folder defaults to the current one)
   ${COMMAND} install <profile> --global --agents <a,b>
                                          Install a Profile for every project (user level)
+  ${COMMAND} mirror <from> [folder]           Copy the installation of <from> into a folder, such as
+                                         a worker's linked worktree (no Workspace needed)
   ${COMMAND} update [folder | --all]          Re-install from the current Workspace
   ${COMMAND} remove [folder | --global]       Remove everything apkit installed there
   ${COMMAND} status [folder | --all | --global]
@@ -108,6 +110,7 @@ selected Workspace.
 - Validate and list Profiles:        \`${COMMAND} check\`
 - Install into a folder:             \`${COMMAND} install <profile> [folder] --agents <ids>\`
 - Install for every project:         \`${COMMAND} install <profile> --global --agents <ids>\`
+- Copy another folder's installation: \`${COMMAND} mirror <from> [folder]\`
 - Apply Workspace edits everywhere:  \`${COMMAND} update --all\`
 - See what is installed or stale:    \`${COMMAND} status --all\`
 - Uninstall from a folder:           \`${COMMAND} remove [folder]\`
@@ -179,6 +182,32 @@ projects. After setup, offer to gather them into the Workspace:
   \`remove --global\` restores each file exactly. It is kept apart from any
   install in the home folder itself; \`update --all\` and \`status --all\` include it.
 
+## Worker worktrees
+
+When a folder must run the same Skills as another folder, such as a worker's
+linked worktree of the user's checkout, run
+\`${COMMAND} mirror <from> [folder]\` in place of \`${COMMAND} install\`. It
+copies the files that <from> has installed now, for every agent of that
+installation, and needs no Workspace. It writes no AGENTS.md or CLAUDE.md, so
+the worktree keeps the instruction files its branch has, and it adds nothing
+to \`git status\`. The folder must be outside any Git repository, or in a
+linked worktree of <from>'s repository at the same path from the worktree root;
+elsewhere, and for a <from> with no Profile Installation, the mirror stops and
+changes nothing. A mirror does not follow later changes to <from>. Run the
+same command again to bring it level with <from>: it replaces and deletes only
+copies it wrote, a copy changed in the folder is a Decision, and with nothing
+to change it says so. \`${COMMAND} status <folder>\` names the folder a mirror
+copies, its Profile, and its agents, without reading the Workspace. To clean
+up, delete the folder. To keep the folder, run \`${COMMAND} remove [folder]\`:
+it deletes only the mirror's copies and the empty folders it created. Use
+\`${COMMAND} install\` when the folder should get the Workspace's current
+Profile and its Context. A mirror into a folder that holds an install, and
+\`install\` or \`update\` in a mirror, is a Decision: with --overwrite the
+folder ends as the one kind of installation the command makes. A mirror never
+changes a file that Git tracks: it leaves a tracked instruction file as it is,
+and a mirror or remove that would change a tracked copy or manifest stops and
+changes nothing, also with --overwrite.
+
 ## Decisions (exit code 3)
 
 When a step needs the user's decision, ${COMMAND} does not change the folder or
@@ -195,7 +224,8 @@ Next lines are for you to run, not for the user to type.
   ${COMMAND} would take over, tell the user that a later remove deletes it.
   Add --yes only after the user agrees.
 - Add --overwrite only after the user explicitly agrees to discard the files
-  it lists: files that were changed, or that ${COMMAND} did not write. Never pass --overwrite on your own judgment. If the user
+  it lists: files that were changed, or that ${COMMAND} did not write, or the
+  other kind of installation in the folder. Never pass --overwrite on your own judgment. If the user
   wants to keep a change, move it into the Workspace first, then update.
 
 ## After installing
