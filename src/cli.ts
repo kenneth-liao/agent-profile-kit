@@ -209,6 +209,17 @@ async function statusOf(workspace: Workspace, target: Target): Promise<Outcome> 
   return { ...base, result: "unchanged" };
 }
 
+/**
+ * The status of a Mirrored Installation in `target`: the folder it mirrors, its Profile, and its agents
+ * (ISC-104). Null for anything else, and for a record that cannot be read, so `statusOf` reports that as before.
+ */
+async function mirrorStatus(target: Target): Promise<Outcome | null> {
+  if (target.global) return null;
+  const record = await readMirror(target.folder).catch(() => null);
+  if (record === null) return null;
+  return { folder: target.folder, mirror: record.mirror, profile: record.profile, agents: record.agents, result: "mirrored" };
+}
+
 /** The Context Modules a project install shares with the global install. A newer global manifest is reported elsewhere. */
 async function overlapWithGlobal(project: Manifest): Promise<string[]> {
   const global = await readManifestAt(globalManifestPath(), globalManifestPath(), "user").catch((error: unknown) => {
@@ -296,6 +307,7 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
     case "installed":
       return written(`Installed ${what} ${at}.`);
     case "mirrored":
+      if (mode === "status") return `${where}: ${what} is a Mirrored Installation of ${display(outcome.mirror!)}.`;
       return [
         `Mirrored ${what} from ${display(outcome.mirror!)} into ${where} (${outcome.changed?.length ?? 0} files written).`,
         "  Instruction files: left as they are. A mirror writes no AGENTS.md or CLAUDE.md.",
@@ -823,10 +835,14 @@ async function run(argv: readonly string[]): Promise<number> {
       return migrateCommand(args, decisions, json);
 
     case "status": {
-      const workspace = await workspaceFor(args);
+      // A Mirrored Installation's status reads only its record: with only mirrors selected, the Workspace is not loaded.
+      const selected = await targets(args);
+      const mirrored = await Promise.all(selected.map(mirrorStatus));
+      const workspace = selected.length > 0 && mirrored.every((m) => m !== null) ? undefined : await workspaceFor(args);
       const outcomes: Outcome[] = [];
-      for (const target of await targets(args)) outcomes.push(await statusOf(workspace, target));
-      print([describeOutcomes(outcomes, "status", args), ...warningLines(workspace)].join("\n"), withWarnings(outcomes, workspace));
+      for (const [i, target] of selected.entries()) outcomes.push(mirrored[i] ?? (await statusOf(workspace!, target)));
+      const warnings = workspace === undefined ? [] : warningLines(workspace);
+      print([describeOutcomes(outcomes, "status", args), ...warnings].join("\n"), workspace === undefined ? { results: outcomes } : withWarnings(outcomes, workspace));
       return EXIT.ok;
     }
 
