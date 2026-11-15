@@ -2146,6 +2146,79 @@ describe("several agents in linked worktrees", () => {
     expect(added.sort()).toEqual(Object.keys(manifest.files).sort());
   }
 
+  /** Runs a mirror that must be refused with `code`, in text and with --json, and checks that nothing was written. Returns both outputs' messages. */
+  async function expectRefused(home: string, repo: string, cwd: string, args: string[], code: number, watched: string[]): Promise<{ text: string; json: string }> {
+    const before = { home: await exactTree(home), exclude: await read(repo, ".git/info/exclude").catch(() => null), folders: await Promise.all(watched.map((folder) => tree(folder))) };
+    const text = cli(home, cwd, "mirror", ...args);
+    expect([text.code, text.out]).toEqual([code, ""]);
+    const json = cli(home, cwd, "mirror", ...args, "--json");
+    expect(json.code).toBe(code);
+    const value = JSON.parse(json.out) as Record<string, unknown>;
+    expect(Object.keys(value)).toEqual(["error"]);
+    expect(`${value.error}\n`).toBe(text.err);
+    expect({ home: await exactTree(home), exclude: await read(repo, ".git/info/exclude").catch(() => null), folders: await Promise.all(watched.map((folder) => tree(folder))) }).toEqual(before);
+    return { text: text.err, json: value.error as string };
+  }
+
+  test("a mirror of a folder with no Profile Installation exits 1, names the folder, and writes nothing", async () => {
+    const { home, repo, worktree } = await repository({ "README.md": "# Repo\n" });
+    const folder = await worktree();
+    const { json } = await expectRefused(home, repo, folder, [repo], 1, [repo, folder]);
+    expect(json).toBe(`${repo} holds no Profile Installation to mirror. Nothing was changed.`);
+  }, SLOW);
+
+  test("a mirror of a Mirrored Installation exits 1 and names the folder it mirrors, to use in its place", async () => {
+    const { home, repo, worktree } = await installedRepository();
+    const first = await worktree();
+    expect(cli(home, first, "mirror", repo).code).toBe(0);
+    const folder = await worktree();
+    const { json } = await expectRefused(home, repo, folder, [first], 1, [repo, first, folder]);
+    expect(json).toBe(
+      `${first} holds a Mirrored Installation of ${repo}, not a Profile Installation. Mirror ${repo} in its place. Nothing was changed.\nNext: \`apkit mirror ${repo} ${folder}\``,
+    );
+    expect(cli(home, folder, "mirror", repo).code).toBe(0);
+  }, SLOW);
+
+  test("a mirror into the folder it mirrors exits 2 before any write", async () => {
+    const { home, repo } = await installedRepository();
+    const fresh = await tempDir("home");
+    for (const [cwd, args] of [[repo, [repo]], [repo, ["."]], [join(repo, ".agents"), [repo, ".."]]] as const) {
+      const { json } = await expectRefused(fresh, repo, cwd, [...args], 2, [repo]);
+      expect(json).toBe(`${repo} is the folder to mirror and the folder to fill. A mirror goes into another folder: \`apkit mirror <from> [folder]\`. Nothing was changed.`);
+      // No lock and no configuration: the apkit home stays empty.
+      expect(await readdir(fresh)).toEqual([]);
+    }
+  }, SLOW);
+
+  test("a mirror into another repository or another path from the worktree root exits 1, says why, and writes nothing; a folder outside any repository is served", async () => {
+    const { home, repo, worktree } = await installedRepository();
+    const served = `A mirror goes into a folder outside any Git repository, or into a linked worktree of ${repo}'s repository at the same path from the worktree root. Nothing was changed.`;
+
+    const other = await tempDir("other");
+    git(other, "init", "-q");
+    const elsewhere = await expectRefused(home, repo, other, [repo], 1, [repo, other]);
+    expect(elsewhere.json).toBe(`${other} is in another Git repository than ${repo}, so ${repo}'s Repository Exclusion Contribution does not cover the copies. ${served}`);
+
+    const linked = await worktree();
+    const sub = join(linked, "sub");
+    await mkdir(sub);
+    const deeper = await expectRefused(home, repo, sub, [repo], 1, [repo, linked]);
+    expect(deeper.json).toBe(`${sub} is at sub from the root of its worktree, and ${repo} at the root, so ${repo}'s Repository Exclusion Contribution does not cover the copies. ${served}`);
+
+    // A Profile Installation outside any repository cannot be mirrored into one.
+    const loose = await tempDir("loose");
+    expect(cli(home, loose, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    const unrepo = await expectRefused(home, repo, linked, [loose], 1, [loose, linked]);
+    expect(unrepo.json).toBe(
+      `${linked} is in a Git repository and ${loose} is in none, so no Repository Exclusion Contribution covers the copies. A mirror of ${loose} goes into a folder outside any Git repository. Nothing was changed.`,
+    );
+
+    const outside = await tempDir("outside");
+    const mirror = cli(home, outside, "mirror", repo);
+    expect([mirror.code, mirror.err]).toEqual([0, ""]);
+    expect(await read(outside, ".claude/skills/summarize/SKILL.md")).toBe(await read(repo, ".claude/skills/summarize/SKILL.md"));
+  }, SLOW);
+
   test("one mirror gives a linked worktree the named folder's installed files byte for byte, for every agent, also when that installation is behind the Workspace", async () => {
     const { home, repo, worktree, listed } = await installedRepository();
     // The main checkout's installation is now behind the Workspace, and one copy there was changed by hand.

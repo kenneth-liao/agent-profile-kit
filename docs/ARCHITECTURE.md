@@ -127,7 +127,11 @@ and the next manifest. `execute` runs only after every Decision is settled.
   `plan` and no Context, so it writes no instruction file, and settles the same
   Decisions. It writes no Repository Exclusion Contribution and no Local
   Configuration entry: in a linked worktree of `<from>`'s repository,
-  `<from>`'s block covers the same paths.
+  `<from>`'s block covers the same paths. So before any write it refuses a
+  folder in another repository or at another path from the worktree root,
+  found by reading Git's files (DEC-004); a folder outside any repository is
+  served. A mirror into `<from>` itself is a usage error, refused before the
+  lock.
 - **Decisions.** `consent` (an edit to `AGENTS.md`, `CLAUDE.md`, or a
   user-level instruction file, or taking over a file apkit did not write that
   already has the same content) and `outside` (a symlink would take a write or

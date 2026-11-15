@@ -190,7 +190,10 @@ linked worktree of the user's checkout, run
 copies the files that <from> has installed now, for every agent of that
 installation, and needs no Workspace. It writes no AGENTS.md or CLAUDE.md, so
 the worktree keeps the instruction files its branch has, and it adds nothing
-to \`git status\`. A mirror does not follow later changes to <from>. To clean
+to \`git status\`. The folder must be outside any Git repository, or in a
+linked worktree of <from>'s repository at the same path from the worktree root;
+elsewhere, and for a <from> with no Profile Installation, the mirror stops and
+changes nothing. A mirror does not follow later changes to <from>. To clean
 up, delete the folder. Use \`${COMMAND} install\` when the folder should get
 the Workspace's current Profile and its Context.
 

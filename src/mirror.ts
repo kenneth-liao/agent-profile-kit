@@ -2,10 +2,12 @@
 // (ADR-0062). It reads only the named folder, never the Workspace, and writes real copies of
 // its installed files and the mirror record. No instruction file, no Repository Exclusion
 // Contribution, and no Local Configuration entry: deleting the folder is the whole cleanup.
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { relative, sep } from "node:path";
+import { findRepository } from "./gitindex.js";
 import { abs, execute, plan, readManifest, readMirror, unresolved, type Decisions, type Manifest } from "./install.js";
 import { trustNeeds, type Outcome, type TrustNeed } from "./location.js";
-import { display } from "./output.js";
+import { display, nextCommand } from "./output.js";
 import type { Desired, DesiredFile } from "./render.js";
 
 export interface MirrorRun {
@@ -37,21 +39,56 @@ export async function mirror(from: string, folder: string, decisions: Decisions)
 
 /**
  * The named folder's Profile Installation, after the checks that keep a mirror from damaging an
- * installation. Interim: #803 owns the refusals for the named folder and for `folder == from`,
- * #805 a second mirror into the same folder, and #806 a mirror into a Profile Installation.
+ * installation. `folder == from` is refused before the lock, in the CLI. Interim: #805 owns a second
+ * mirror into the same folder, and #806 a mirror into a Profile Installation.
  * Each stops with an error and changes nothing.
  */
 async function sourceInstallation(from: string, folder: string): Promise<Manifest> {
-  // A named folder that holds a mirror throws MirroredInstallationError here.
+  const mirrored = await readMirror(from);
+  if (mirrored !== null) {
+    const original = display(mirrored.mirror);
+    throw new Error(
+      `${display(from)} holds a Mirrored Installation of ${original}, not a Profile Installation. Mirror ${original} in its place. Nothing was changed.\n${nextCommand(["mirror", mirrored.mirror, folder])}`,
+    );
+  }
   const source = await readManifest(from);
   if (source === null) throw new Error(`${display(from)} holds no Profile Installation to mirror. Nothing was changed.`);
-  const mirrored = await readMirror(folder);
-  if (mirrored !== null) {
-    throw new Error(`${display(folder)} already holds a Mirrored Installation of ${display(mirrored.mirror)}. Nothing was changed.`);
+  await checkPlace(from, folder);
+  const existing = await readMirror(folder);
+  if (existing !== null) {
+    throw new Error(`${display(folder)} already holds a Mirrored Installation of ${display(existing.mirror)}. Nothing was changed.`);
   }
   const installed = await readManifest(folder);
   if (installed !== null) {
     throw new Error(`${display(folder)} already holds a Profile Installation of '${installed.profile}'. Nothing was changed.`);
   }
   return source;
+}
+
+/**
+ * Refuses a folder in a Git repository where `from`'s Repository Exclusion Contribution does not cover
+ * the copies (DEC-004): another repository, or another path from the root of its worktree. A folder
+ * outside any repository is served. Reads Git's files only, as `findRepository` does.
+ */
+async function checkPlace(from: string, folder: string): Promise<void> {
+  const target = await findRepository(folder);
+  if (target === null) return;
+  const source = await findRepository(from);
+  if (source === null) {
+    throw new Error(
+      `${display(folder)} is in a Git repository and ${display(from)} is in none, so no Repository Exclusion Contribution covers the copies. A mirror of ${display(from)} goes into a folder outside any Git repository. Nothing was changed.`,
+    );
+  }
+  const covers = `so ${display(from)}'s Repository Exclusion Contribution does not cover the copies.`;
+  const served = `A mirror goes into a folder outside any Git repository, or into a linked worktree of ${display(from)}'s repository at the same path from the worktree root. Nothing was changed.`;
+  const real = (path: string) => realpath(path).catch(() => path);
+  if ((await real(target.commonDir)) !== (await real(source.commonDir))) {
+    throw new Error(`${display(folder)} is in another Git repository than ${display(from)}, ${covers} ${served}`);
+  }
+  const at = (root: string, path: string) => relative(root, path).split(sep).join("/");
+  const [here, there] = [at(target.root, folder), at(source.root, from)];
+  if (here !== there) {
+    const where = (path: string) => (path === "" ? "the root" : path);
+    throw new Error(`${display(folder)} is at ${where(here)} from the root of its worktree, and ${display(from)} at ${where(there)}, ${covers} ${served}`);
+  }
 }
