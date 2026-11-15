@@ -46,6 +46,20 @@ export async function mirror(from: string, folder: string, decisions: Decisions)
 }
 
 /**
+ * Removes the Mirrored Installation in `folder`: its copies, its Installation Manifest, and the
+ * folders it created when they end up empty. Like `mirror`, it touches no instruction file, no
+ * exclude file, and no Local Configuration.
+ */
+export async function removeMirror(folder: string, record: MirrorManifest, decisions: Decisions): Promise<Outcome> {
+  const planned = await plan(folder, null, record);
+  const open = unresolved(planned, decisions);
+  const base = { folder, mirror: record.mirror, profile: record.profile, agents: record.agents, instructions: planned.instructions };
+  if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
+  await execute(planned);
+  return { ...base, result: "removed", changed: planned.ops.map((op) => op.path) };
+}
+
+/**
  * The named folder's Profile Installation, and the folder's own mirror record of it when this is a
  * second run, after the checks that keep a mirror from damaging an installation. A folder that
  * mirrors a different folder stops with an error and changes nothing. `folder == from` is refused

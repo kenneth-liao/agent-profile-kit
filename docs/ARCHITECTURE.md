@@ -133,7 +133,10 @@ and the next manifest. `execute` runs only after every Decision is settled.
   served. A mirror into `<from>` itself is a usage error, refused before the
   lock. Run again, it plans against the mirror's own record as `previous`, so
   it replaces and deletes only copies it wrote and prunes only folders it
-  created.
+  created. `remove` in a mirror plans the removal from the mirror record with
+  `plan`, which records no Context Section and no `CLAUDE.md` line, so it
+  deletes only the copies, the manifest, and the recorded folders left empty,
+  and touches neither file.
 - **Decisions.** `consent` (an edit to `AGENTS.md`, `CLAUDE.md`, or a
   user-level instruction file, or taking over a file apkit did not write that
   already has the same content) and `outside` (a symlink would take a write or

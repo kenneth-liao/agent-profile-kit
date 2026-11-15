@@ -10,6 +10,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 - Changed `apkit status <folder>` on a Mirrored Installation to name the folder it mirrors, its Profile, and its agents, also with `--json` and with no Workspace selected, where it stopped with an error before (#807)
 - Added `apkit mirror <from> [folder]`, which gives a folder such as a worker's linked worktree real copies of the files `<from>` has installed, for every agent, with no Workspace needed, no instruction file written, and nothing new in `git status` (#802)
 - Added the refusals of `apkit mirror`, which stops before any write with the reason, also as one `--json` value, when `<from>` holds no Profile Installation or holds a Mirrored Installation (naming the folder to mirror instead), when the folder is in another Git repository or at another path from the worktree root (exit 1), or when the folder is `<from>` itself (exit 2) (#803)
+- Added `apkit remove <folder>` for a Mirrored Installation, which deletes the mirror's copies, its Installation Manifest, and the empty folders it created, and changes no instruction file, exclude block, or Local Configuration entry (#804)
 - Fixed `install --global` and `setup` writing OpenCode's Context and note to `~/.claude/CLAUDE.md`, which OpenCode v2 does not read; they now always write OpenCode's own `~/.config/opencode/AGENTS.md` (created with consent), `update --all` moves an earlier global install there, and running `setup` again moves an earlier note (#798)
 
 ## [0.239.6] - 2026-11-12
