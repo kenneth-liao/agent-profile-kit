@@ -310,7 +310,7 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
     case "mirrored":
       if (mode === "status") return `${where}: ${what} is a Mirrored Installation of ${display(outcome.mirror!)}.`;
       return [
-        `Mirrored ${what} from ${display(outcome.mirror!)} into ${where} (${outcome.changed?.length ?? 0} files written).`,
+        `Mirrored ${what} from ${display(outcome.mirror!)} into ${where} (${(outcome.changed?.length ?? 0) - (outcome.deleted?.length ?? 0)} files written${outcome.deleted ? `, ${outcome.deleted.length} deleted` : ""}).`,
         // Only a Profile Installation it replaced leaves instruction-file changes (ISC-103).
         ...(outcome.instructions?.length
           ? changedInstructionLines(outcome.instructions)
@@ -323,6 +323,7 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
     case "removed":
       return written(`Removed ${what} ${from}.`);
     case "unchanged":
+      if (outcome.mirror !== undefined) return `${where}: ${what} is already the same as ${display(outcome.mirror)}. Nothing changed.`;
       return mode === "status" ? `${where}: ${what} is up to date.` : `${where}: ${what} is already up to date.`;
     case "not-installed":
       return `${where}: nothing installed.`;

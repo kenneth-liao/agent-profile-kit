@@ -37,6 +37,8 @@ export interface Outcome {
   readonly issues?: readonly Issue[];
   readonly instructions?: readonly InstructionChange[];
   readonly changed?: readonly string[];
+  /** For a Mirrored Installation run again: the copies it deleted, among `changed`; absent when none. */
+  readonly deleted?: readonly string[];
   readonly message?: string;
   /** Context Modules this project install shares with the global install (status only). */
   readonly overlap?: readonly string[];

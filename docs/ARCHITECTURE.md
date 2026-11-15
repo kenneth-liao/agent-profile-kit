@@ -127,13 +127,15 @@ and the next manifest. `execute` runs only after every Decision is settled.
   `plan` and no Context, so it writes no instruction file, and settles the same
   Decisions. It writes no Repository Exclusion Contribution and no Local
   Configuration entry: in a linked worktree of `<from>`'s repository,
-  `<from>`'s block covers the same paths.
-- **Replacing the other kind.** `plan` reads a mirror's record as an install
-  that wrote no Context, so either kind replaces the other under the same hash
-  rules, after the `installation` Decision. A mirror that replaces a Profile
-  Installation removes its Context Section and `CLAUDE.md` line only from an
-  instruction file Git does not track, leaves a tracked one as it is (ISC-97),
-  and removes the folder's exclusion block and Local Configuration entry.
+  `<from>`'s block covers the same paths. Run again, it plans against the
+  mirror's own record as `previous`, so it replaces and deletes only copies it
+  wrote and prunes only folders it created.
+- **Replacing the other kind.** After the `installation` Decision, either kind
+  replaces the other under the same hash rules, with the other kind's record as
+  `previous`. A mirror that replaces a Profile Installation removes its Context
+  Section and `CLAUDE.md` line only from an instruction file Git does not
+  track, leaves a tracked one as it is (ISC-97), and removes the folder's
+  exclusion block and Local Configuration entry.
 - **Decisions.** `consent` (an edit to `AGENTS.md`, `CLAUDE.md`, or a
   user-level instruction file, or taking over a file apkit did not write that
   already has the same content) and `outside` (a symlink would take a write or

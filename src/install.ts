@@ -310,7 +310,7 @@ export interface PlanOptions {
  * A user-level install's Context goes in user-level files (see setup.ts), not in the target's AGENTS.md.
  */
 export async function plan(target: string, desired: Desired | null, recorded: Manifest | MirrorManifest | null, options: PlanOptions = {}): Promise<Plan> {
-  // A mirror's record, read as an install that wrote no Context Section, no AGENTS.md, and no CLAUDE.md line.
+  // A mirror's record has no instruction-file fields: it wrote no AGENTS.md or CLAUDE.md.
   const previous: Manifest | null = recorded?.schema === MIRROR_SCHEMA ? { ...recorded, schema: 1, block: null, createdAgentsMd: false, claudeImport: false } : recorded;
   const ops: Op[] = [];
   const issues: Issue[] = [];
