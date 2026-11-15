@@ -37,8 +37,12 @@ An Agent Host's native discovery, precedence, deduplication, and collision behav
 _Avoid_: apkit-owned resolver, emulated Host inventory
 
 **Profile Installation**:
-One Workspace Profile installed for selected Agent Hosts into one folder: any folder, including a linked worktree. It is generated output with no authority apart from its Workspace source. There is one kind of installation; its Installation Manifest owns it, and `remove` deletes it with the empty folders the install created; a folder that was there before the install stays (ADR-0056).
+One Workspace Profile installed for selected Agent Hosts into one folder: any folder, including a linked worktree. It is generated output with no authority apart from its Workspace source. Its Installation Manifest owns it, and `remove` deletes it with the empty folders the install created; a folder that was there before the install stays (ADR-0056).
 _Avoid_: Canonical source, live link, Temporary Profile Installation, Project Binding
+
+**Mirrored Installation**:
+A copy of a named folder's Profile Installation in another folder, such as a worker's linked worktree: the same Profile, every Agent Host, and the same installed files. Its source is that folder's installation, not the Workspace. It writes no instruction file, makes no symbolic link, and is not in Local Configuration, so `--all` does not see it and nothing of it outlives its folder. It does not follow later changes to the named folder (ADR-0062).
+_Avoid_: Temporary Profile Installation, linked installation, worktree installation
 
 **User-Level Installation**:
 A Profile Installation made with `install --global`: the Profile's Skills go in each Host's user-level Skills folder, and its Context goes in a Context Section of each Host's user-level instruction file. It follows the same consent, hash, and restore rules as a project install, and its Installation Manifest is `global.json` in the apkit home.

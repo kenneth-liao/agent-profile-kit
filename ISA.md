@@ -1,10 +1,10 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 81/87
+progress: 81/96
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
-updated: 2026-11-05
+updated: 2026-11-15
 ---
 
 # Ideal State — Agent Profile Kit
@@ -20,6 +20,10 @@ New users cannot tell where setup puts the Workspace, what a valid Workspace
 must contain, or how to use the Context and Skills they already have.
 Disposable worker worktrees get no Profile, so orchestrators copy apkit output
 into them by hand.
+A worker worktree cannot get the installation its parent checkout has: an
+install takes the Workspace's current content, which can be newer than the
+parent's, and it stops for a Decision when the worktree's tracked `AGENTS.md`
+holds an older Context Section.
 Until 0.239.0, the engine was large: per-Host Adapters, interactive prompts,
 and supervised processes. Each new agent or platform made it larger.
 
@@ -32,8 +36,9 @@ Maintainers can qualify changes efficiently using trustworthy evidence, and
 users receive the exact package that passed release qualification.
 A new user turns what they already have, or nothing, into a Workspace they
 chose and own, knowing exactly what it must contain.
-An orchestrator gives each worker a disposable worktree that already has its
-Profile, then removes it without a trace.
+An orchestrator gives each worker a disposable worktree that has the same
+Profile Installation as the checkout it came from, on any supported system,
+and deleting the worktree leaves no trace.
 apkit is a small engine with no dependencies. It behaves the same on macOS,
 Linux, and Windows, and an agent learns it from the tool itself.
 
@@ -47,6 +52,7 @@ Linux, and Windows, and an agent learns it from the tool itself.
 - Recovering the list of installed folders after Local Configuration is lost.
 - apkit writing Host trust or approval state.
 - Automatic worktree discovery, Git hooks, or watchers.
+- apkit creating or deleting worktrees.
 - Prompts inside the engine; the user decides through their agent or with
   flags.
 - Agent-specific Context formats; Context reaches every agent through the
@@ -68,6 +74,9 @@ connected Workspace in a location they chose, against a published contract that
 validation enforces.
 Let an orchestrator give a disposable Project one Profile for every Host it
 needs with one owned operation, and remove all of it with one owned operation.
+Let it also give a folder the same Profile Installation as another folder with
+one owned operation, without a change to a tracked file and without a record
+that outlives the folder.
 Do all of this with a small engine with no dependencies, which behaves the same
 on macOS, Linux, and Windows and which an agent learns from the tool itself.
 
@@ -452,6 +461,58 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   `docs/ARCHITECTURE.md` Verified Locations table needs trust without a line,
   or a line for a Host that does not need trust, fails. bash
 
+- [ ] **ISC-96:** One command gives a folder the same Profile Installation as
+  a named folder: the same Profile, every Host of that folder, and installed
+  files that are byte-for-byte the same.
+  Probe: packed CLI; mirror a folder whose installation is behind the
+  Workspace into a linked worktree; an installed file that differs from the
+  named folder's, a missing Host, or a second command, fails. bash
+- [ ] **ISC-97:** **Anti:** A Mirrored Installation never changes a file that
+  Git tracks in its folder.
+  Probe: mirror into a linked worktree whose tracked `AGENTS.md` has an older
+  Context Section than the named folder's; any line of `git status --porcelain`
+  for a tracked file fails. bash
+- [ ] **ISC-98:** **Anti:** A Mirrored Installation holds no symbolic link.
+  Probe: walk every path the mirror created; any symbolic link fails. bash
+- [ ] **ISC-99:** **Anti:** A Mirrored Installation adds no untracked entry to
+  its folder's `git status`.
+  Probe: compare `git status --porcelain` in the linked worktree before and
+  after the mirror; any new untracked entry fails. bash
+- [ ] **ISC-100:** **Anti:** A Mirrored Installation leaves no record outside
+  its folder that outlives the folder.
+  Probe: mirror into a linked worktree, run `git worktree remove --force`, and
+  run no apkit command; the folder in `status --all`, in Local Configuration,
+  or in the repository's exclude file fails. bash
+- [ ] **ISC-101:** **Anti:** `status --all` and `update --all` never list or
+  change a Mirrored Installation.
+  Probe: mirror, change the Workspace, then run both; the mirror listed, or
+  any of its files changed, fails. bash
+- [ ] **ISC-102:** **Anti:** A change to the named folder's installation never
+  changes an existing Mirrored Installation, and the same command run again
+  brings the mirror level with the named folder.
+  Probe: update the named folder and compare the mirror before and after; any
+  change fails. Then run the mirror command again; any installed file that
+  differs from the named folder's fails. bash
+- [ ] **ISC-103:** **Anti:** `install` or `update` in a folder that holds a
+  Mirrored Installation changes nothing without the user's Decision.
+  Probe: run each without the Decision; any changed file, an exit status other
+  than 3, or output that does not name the folder the installation mirrors,
+  fails. bash
+- [ ] **ISC-104:** `status` for a folder that holds a Mirrored Installation
+  names the folder it mirrors.
+  Probe: `status <folder>` after a mirror; output without the named folder
+  fails. bash
+
+## Not yet specified
+
+- A named folder that also has Profile Installations in its subfolders: does
+  one command mirror them all, or only the named folder's?
+- ISC-99 and ISC-100 together for a folder that is not a linked worktree of
+  the named folder's repository. In a linked worktree the named folder's
+  Repository Exclusion Contribution already covers the same paths. In another
+  repository, the mirror needs its own way to stay out of `git status`, and
+  that way must not outlive the folder.
+
 ## Decisions
 
 - 2026-09-10 — refined: the principal accepted the concise Goal after reviewing
@@ -685,6 +746,34 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
     and Skills, so stacking Profiles adds nothing. The fog item is closed.
   - The beginner Goal stays unchanged. Without the walkthrough claims, it is
     covered by the scripted lifecycle claims and ISC-6, ISC-7.1, and ISC-7.2.
+
+- 2026-11-15 — refined: from a spec delivery in which every worker worktree
+  lacked its Skills, the principal extended the destination: "set up worktrees
+  with the same apkit profile of the parent/root branch by default", and "I
+  want windows". Accepted (ISC-96 to ISC-104):
+  - "The same" means what the named folder has installed, not the Workspace's
+    current content, so an orchestrator and its workers run the same Skills.
+  - The operation never changes a tracked file. The worktree keeps the
+    instruction files its branch has.
+  - Real copies only. Dead end: symbolic links to the named folder's
+    installation. They need special rights on Windows (ISC-59), and the
+    patterns of a Repository Exclusion Contribution match a folder, not a
+    link to one.
+  - One explicit command, with the folder to mirror named by the caller. apkit
+    still does no worktree discovery and creates no worktree; an orchestrator's
+    own worktree step runs the command.
+  - No record outlives the folder, so a skipped close-out leaves nothing in
+    `status --all`. ISC-57 stays for a Profile Installation.
+  - A mirror keeps what it got; it does not follow later changes to the named
+    folder. `install` and `update` in it need a Decision.
+  - Proof is output probes in CI on the three systems. No manual claim watches
+    an orchestration run (see 2026-09-24).
+  - ISC-50 to ISC-58 are unchanged: a Profile Installation into a linked
+    worktree stays allowed.
+  - Contradicts ADR-0056 point 3 ("One kind of installation") and partly
+    brings back the temporary installation that the 2026-10-30 decision
+    removed; recorded in
+    [ADR-0062](docs/adr/0062-mirror-a-folders-profile-installation.md).
 
 ## Verification
 
