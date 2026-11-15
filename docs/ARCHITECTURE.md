@@ -127,7 +127,9 @@ and the next manifest. `execute` runs only after every Decision is settled.
   `plan` and no Context, so it writes no instruction file, and settles the same
   Decisions. It writes no Repository Exclusion Contribution and no Local
   Configuration entry: in a linked worktree of `<from>`'s repository,
-  `<from>`'s block covers the same paths. `remove` in a mirror plans the
+  `<from>`'s block covers the same paths. Run again, it plans against the
+  mirror's own record as `previous`, so it replaces and deletes only copies it
+  wrote and prunes only folders it created. `remove` in a mirror plans the
   removal from the mirror record with `plan`, which records no Context
   Section and no `CLAUDE.md` line, so it deletes only the copies, the manifest,
   and the recorded folders left empty, and touches neither file.

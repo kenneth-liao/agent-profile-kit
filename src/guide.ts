@@ -190,11 +190,13 @@ linked worktree of the user's checkout, run
 copies the files that <from> has installed now, for every agent of that
 installation, and needs no Workspace. It writes no AGENTS.md or CLAUDE.md, so
 the worktree keeps the instruction files its branch has, and it adds nothing
-to \`git status\`. A mirror does not follow later changes to <from>.
-\`${COMMAND} status <folder>\` names the folder a mirror copies, its Profile,
-and its agents, without reading the Workspace. To clean up, delete the folder.
-To keep the folder, run \`${COMMAND} remove [folder]\`: it deletes only the
-mirror's copies and the empty folders it created. Use
+to \`git status\`. A mirror does not follow later changes to <from>. Run the
+same command again to bring it level with <from>: it replaces and deletes only
+copies it wrote, a copy changed in the folder is a Decision, and with nothing
+to change it says so. \`${COMMAND} status <folder>\` names the folder a mirror
+copies, its Profile, and its agents, without reading the Workspace. To clean
+up, delete the folder. To keep the folder, run \`${COMMAND} remove [folder]\`:
+it deletes only the mirror's copies and the empty folders it created. Use
 \`${COMMAND} install\` when the folder should get the Workspace's current
 Profile and its Context.
 

@@ -487,7 +487,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   change a Mirrored Installation.
   Probe: mirror, change the Workspace, then run both; the mirror listed, or
   any of its files changed, fails. bash
-- [ ] **ISC-102:** **Anti:** A change to the named folder's installation never
+- [x] **ISC-102:** **Anti:** A change to the named folder's installation never
   changes an existing Mirrored Installation, and the same command run again
   brings the mirror level with the named folder.
   Probe: update the named folder and compare the mirror before and after; any
@@ -869,3 +869,4 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-99: `test/cli.test.ts` "a mirror adds no untracked entry to the linked worktree's git status" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-100: `test/cli.test.ts` "a mirror leaves no record outside its folder: after git worktree remove --force and no apkit command, the folder is in no status --all, Local Configuration, or exclude file" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-101: `test/cli.test.ts` "status --all and update --all never list or change a mirror" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-102: `test/cli.test.ts` "a change to the named folder's installation never changes an existing mirror"; "the same mirror command run again brings the mirror level with the named folder, and says what changed"; supported by "running mirror again deletes a copy the named folder no longer has, with the folders that become empty, and nothing else" and "a copy changed in a mirrored folder is a Decision: nothing changes, exit 3, and the Next line carries --overwrite" (also with `APKIT_CLI=dist/cli.js`)
