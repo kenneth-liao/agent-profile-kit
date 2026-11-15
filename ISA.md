@@ -493,7 +493,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: update the named folder and compare the mirror before and after; any
   change fails. Then run the mirror command again; any installed file that
   differs from the named folder's fails. bash
-- [ ] **ISC-103:** **Anti:** `install` or `update` in a folder that holds a
+- [x] **ISC-103:** **Anti:** `install` or `update` in a folder that holds a
   Mirrored Installation changes nothing without the user's Decision.
   Probe: run each without the Decision; any changed file, an exit status other
   than 3, or output that does not name the folder the installation mirrors,
@@ -867,3 +867,4 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-97: `test/cli.test.ts` "a mirror changes no tracked file and writes no AGENTS.md or CLAUDE.md, also when the tracked AGENTS.md has an older Context Section" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-98: `test/cli.test.ts` "no path a mirror creates is a symbolic link" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-99: `test/cli.test.ts` "a mirror adds no untracked entry to the linked worktree's git status" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-103: `test/cli.test.ts` "install or update in a folder that holds a Mirrored Installation changes nothing without the Decision, exits 3, and names the folder it mirrors" (also with `APKIT_CLI=dist/cli.js`)

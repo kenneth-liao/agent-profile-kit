@@ -279,7 +279,7 @@ function nextArgs(outcome: Outcome, args: Args, mode: "apply" | "status"): strin
   }
   if (result[0] === "install" && !args.flags.has("--agents")) result.push("--agents", outcome.agents!.join(","));
   if (outcome.issues?.some((i) => i.kind === "consent" || i.kind === "outside") && !result.includes("--yes")) result.push("--yes");
-  if (outcome.issues?.some((i) => i.kind === "changed" || i.kind === "unowned") && !result.includes("--overwrite")) result.push("--overwrite");
+  if (outcome.issues?.some((i) => i.kind === "changed" || i.kind === "unowned" || i.kind === "installation") && !result.includes("--overwrite")) result.push("--overwrite");
   return result;
 }
 
@@ -287,6 +287,7 @@ const DONE = { create: "created", change: "changed", delete: "deleted" } as cons
 
 /** One instruction file, what happens (or happened) to it, and whether Git tracks it (ISC-86). */
 function instructionLine(file: InstructionChange, when: "planned" | "done"): string {
+  if (file.action === "leave") return `${file.path}: left as it is, because Git tracks it.`;
   return `${file.path}: ${when === "planned" ? "will be " : ""}${DONE[file.action]}; ${file.tracked ? "tracked" : "not tracked"} by Git.`;
 }
 
@@ -310,7 +311,10 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
       if (mode === "status") return `${where}: ${what} is a Mirrored Installation of ${display(outcome.mirror!)}.`;
       return [
         `Mirrored ${what} from ${display(outcome.mirror!)} into ${where} (${outcome.changed?.length ?? 0} files written).`,
-        "  Instruction files: left as they are. A mirror writes no AGENTS.md or CLAUDE.md.",
+        // Only a Profile Installation it replaced leaves instruction-file changes (ISC-103).
+        ...(outcome.instructions?.length
+          ? changedInstructionLines(outcome.instructions)
+          : ["  Instruction files: left as they are. A mirror writes no AGENTS.md or CLAUDE.md."]),
       ].join("\n");
     case "updated":
       return mode === "status"
@@ -717,7 +721,8 @@ async function run(argv: readonly string[]): Promise<number> {
       const target = global ? await globalTarget() : { folder: await folderArg(args.positional[2]) };
       const workspace = await workspaceFor(args);
       requireValid(workspace);
-      const previous = await previousAt(target);
+      // A Mirrored Installation here is replaced only by the user's Decision (ISC-103).
+      const previous = (global ? null : await readMirror(target.folder)) ?? (await previousAt(target));
       const agents = agentsFlag(args, previous?.profile === profile ? previous.agents : undefined);
       const desired = renderFor(workspace, profile, agents, global ? "user" : undefined);
       const outcome = await apply(target, desired, previous, decisions);
@@ -746,6 +751,16 @@ async function run(argv: readonly string[]): Promise<number> {
       requireValid(workspace);
       const outcomes: Outcome[] = [];
       for (const target of await targets(args)) {
+        // A Mirrored Installation in the named folder becomes a Profile Installation only by the user's Decision (ISC-103).
+        const mirrored = target.global || args.flags.has("--all") ? null : await readMirror(target.folder);
+        if (mirrored !== null) {
+          outcomes.push(
+            workspace.profiles.has(mirrored.profile)
+              ? await apply(target, renderFor(workspace, mirrored.profile, mirrored.agents), mirrored, decisions)
+              : { folder: target.folder, result: "error", message: `Profile '${mirrored.profile}' is no longer in the Workspace.` },
+          );
+          continue;
+        }
         const status = await statusOf(workspace, target);
         // A deleted folder is forgotten, with its exclusion block, as `remove` would.
         if (status.result === "missing" && !target.global) await forget(target.folder);

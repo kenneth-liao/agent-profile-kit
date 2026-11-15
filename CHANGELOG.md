@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Changed `apkit install` and `apkit update` in a folder that holds a Mirrored Installation, and `apkit mirror` into a folder that holds a Profile Installation, to stop with a Decision that names the installation there and, with `--overwrite`, replace it, where they stopped with an error before (#806)
 - Changed `apkit status <folder>` on a Mirrored Installation to name the folder it mirrors, its Profile, and its agents, also with `--json` and with no Workspace selected, where it stopped with an error before (#807)
 - Added `apkit mirror <from> [folder]`, which gives a folder such as a worker's linked worktree real copies of the files `<from>` has installed, for every agent, with no Workspace needed, no instruction file written, and nothing new in `git status` (#802)
 - Fixed `install --global` and `setup` writing OpenCode's Context and note to `~/.claude/CLAUDE.md`, which OpenCode v2 does not read; they now always write OpenCode's own `~/.config/opencode/AGENTS.md` (created with consent), `update --all` moves an earlier global install there, and running `setup` again moves an earlier note (#798)

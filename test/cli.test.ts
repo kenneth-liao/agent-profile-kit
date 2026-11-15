@@ -2305,7 +2305,7 @@ describe("several agents in linked worktrees", () => {
 
     // This apkit never takes the mirror for a Profile Installation: each command stops and changes nothing.
     const before = await tree(folder);
-    for (const args of [["install", "engineering", "--agents", "claude", "--yes", "--overwrite"], ["update", "--yes", "--overwrite"], ["remove", "--yes", "--overwrite"]]) {
+    for (const args of [["remove", "--yes", "--overwrite"]]) {
       const result = cli(home, folder, ...args);
       expect([args[0], result.code]).toEqual([args[0], 1]);
       expect(result.err).toContain(`holds a Mirrored Installation of ${repo}`);
@@ -2369,6 +2369,151 @@ describe("several agents in linked worktrees", () => {
     expect(await tree(folder)).toEqual(before);
     expect(cli(home, repo, "mirror", repo, folder, "--overwrite").code).toBe(0);
     expect(await read(folder, ".claude/skills/summarize/SKILL.md")).toBe(await read(repo, ".claude/skills/summarize/SKILL.md"));
+  }, SLOW);
+
+  /** Runs the command a Decision's Next line names, exactly as printed. */
+  function runNext(home: string, cwd: string, out: string) {
+    const line = /^ {2}Next: `apkit (.+)`$/m.exec(out)?.[1];
+    expect(line).toBeDefined();
+    return cli(home, cwd, ...line!.split(" "));
+  }
+
+  test("install or update in a folder that holds a Mirrored Installation changes nothing without the Decision, exits 3, and names the folder it mirrors", async () => {
+    const { home, repo, worktree } = await installedRepository();
+    const folder = await worktree();
+    expect(cli(home, folder, "mirror", repo).code).toBe(0);
+    const now = async () => ({ tree: await tree(folder), exclude: await read(repo, ".git/info/exclude"), config: await read(home, "config.json"), status: status(folder) });
+    const before = await now();
+    for (const [args, next] of [
+      // `--yes` alone, the habit for an install that creates AGENTS.md, does not grant it.
+      [["install", "engineering", "--agents", "claude", "--yes"], `apkit install engineering ${folder} --agents claude --yes --overwrite`],
+      [["update"], `apkit update ${folder} --yes --overwrite`],
+    ] as const) {
+      const result = cli(home, folder, ...args);
+      expect([args[0], result.code, result.err]).toEqual([args[0], 3, ""]);
+      expect(result.out).toContain(`${folder}: nothing changed. Needs a decision:\n  - This folder holds a Mirrored Installation of ${repo}. apkit replaces it with a Profile Installation.\n`);
+      expect(result.out).toContain(`  Only after the user agrees:\n  Next: \`${next}\`\n`);
+      expect(await now()).toEqual(before);
+    }
+    const json = cli(home, folder, "update", "--json");
+    expect(json.code).toBe(3);
+    expect(JSON.parse(json.out).results[0]).toMatchObject({ folder, result: "needs-decision", profile: "engineering" });
+    expect(JSON.parse(json.out).results[0].issues).toContainEqual({
+      kind: "installation",
+      path: ".agents/apkit.json",
+      message: `This folder holds a Mirrored Installation of ${repo}. apkit replaces it with a Profile Installation.`,
+    });
+    expect(await now()).toEqual(before);
+  }, SLOW);
+
+  test("with the Decision, install or update in a mirrored folder leaves a Profile Installation and nothing of the mirror", async () => {
+    const { home, repo, worktree } = await installedRepository({ "README.md": "# Repo\n", "CLAUDE.md": "# Repo\n" });
+    for (const [args, agents] of [[["install", "engineering", "--agents", "claude", "--yes"], ["claude"]], [["update"], ALL]] as const) {
+      const folder = await worktree();
+      const before = await tree(folder);
+      const untracked = status(folder);
+      expect(cli(home, folder, "mirror", repo).code).toBe(0);
+      const granted = runNext(home, folder, cli(home, folder, ...args).out);
+      expect([args[0], granted.code, granted.err]).toEqual([args[0], 0, ""]);
+      expect(granted.out).toContain(`Installed 'engineering' for ${agents.map((id) => AGENTS[id].name).join(", ")} in ${folder}.`);
+      const manifest = JSON.parse(await read(folder, ".agents/apkit.json")) as Record<string, unknown>;
+      expect([manifest.schema, "mirror" in manifest]).toEqual([1, false]);
+      // Every file on disk is the Profile Installation's: no mirror copy outside the new selection is left.
+      await expectAgentOutputs(folder, agents, before);
+      expect(await block(repo, folder)).toContain("/.agents/apkit.json\n");
+      expect((JSON.parse(cli(home, repo, "status", "--all", "--json").out).results as { folder: string }[]).map((o) => o.folder)).toContain(folder);
+      expect(status(folder)).toEqual([...untracked, " M CLAUDE.md", "?? AGENTS.md"].sort());
+      // The folders the mirror created are the install's now: one remove leaves the folder as it was before the mirror.
+      expect(cli(home, folder, "remove").code).toBe(0);
+      expect(await tree(folder)).toEqual(before);
+      expect(await block(repo, folder)).toBeNull();
+      expect(status(folder)).toEqual(untracked);
+    }
+  }, SLOW);
+
+  test("update in a mirror whose Profile the Workspace lacks is an error and changes nothing", async () => {
+    const { home, repo, worktree } = await installedRepository();
+    const folder = await worktree();
+    expect(cli(home, folder, "mirror", repo).code).toBe(0);
+    const before = await tree(folder);
+    const lacking = await makeWorkspace();
+    await rm(join(lacking, "profiles", "engineering.yaml"));
+    const result = cli(home, folder, "update", "--yes", "--overwrite", "--workspace", lacking);
+    expect([result.code, result.out]).toEqual([1, `${folder}: Profile 'engineering' is no longer in the Workspace.\n`]);
+    expect(await tree(folder)).toEqual(before);
+  }, SLOW);
+
+  test("a mirror into a folder that holds a Profile Installation is a Decision that names it; with the Decision only the mirror is left, and no tracked file changes", async () => {
+    const { home, repo, worktree, listed } = await installedRepository({ "README.md": "# Repo\n", "CLAUDE.md": "# Repo\n" });
+    const names = "Claude Code, Codex";
+    const decision = `This folder holds a Profile Installation of 'engineering' for ${names}. apkit replaces it with a Mirrored Installation of ${repo}.`;
+    const copied = async (folder: string) => {
+      for (const path of listed) expect([path, await read(folder, path)]).toEqual([path, await read(repo, path)]);
+      const manifest = JSON.parse(await read(folder, ".agents/apkit.json")) as { schema: number; mirror: string };
+      expect([manifest.schema, manifest.mirror]).toEqual([2, repo]);
+      expect(JSON.stringify(JSON.parse(await read(home, "config.json")))).not.toContain(folder);
+      expect((JSON.parse(cli(home, repo, "status", "--all", "--json").out).results as { folder: string }[]).map((o) => o.folder)).not.toContain(folder);
+    };
+
+    // A linked worktree whose instruction files Git tracks: AGENTS.md committed with apkit's section, CLAUDE.md modified by the install.
+    const folder = await worktree();
+    const pristine = await tree(folder);
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude,codex", "--yes").code).toBe(0);
+    git(folder, "add", "AGENTS.md");
+    git(folder, "commit", "-qm", "instructions");
+    expect(status(folder)).toEqual([" M CLAUDE.md"]);
+    const now = async () => ({ tree: await tree(folder), exclude: await read(repo, ".git/info/exclude"), config: await read(home, "config.json"), status: status(folder) });
+    const before = await now();
+    const instructions = { agents: await read(folder, "AGENTS.md"), claude: await read(folder, "CLAUDE.md") };
+    expect(instructions.agents).toContain("<!-- apkit:begin -->");
+    expect(instructions.claude).toContain("@AGENTS.md");
+
+    const blocked = cli(home, folder, "mirror", repo);
+    expect([blocked.code, blocked.err]).toEqual([3, ""]);
+    expect(blocked.out).toContain(`${folder}: nothing changed. Needs a decision:\n  - ${decision}\n`);
+    expect(blocked.out).toContain("    - AGENTS.md: left as it is, because Git tracks it.\n    - CLAUDE.md: left as it is, because Git tracks it.\n");
+    expect(blocked.out).toContain(`  Only after the user agrees:\n  Next: \`apkit mirror ${repo} ${folder} --overwrite\`\n`);
+    expect(await now()).toEqual(before);
+
+    const granted = runNext(home, folder, blocked.out);
+    expect([granted.code, granted.err]).toEqual([0, ""]);
+    expect(granted.out).toContain("    - AGENTS.md: left as it is, because Git tracks it.\n    - CLAUDE.md: left as it is, because Git tracks it.\n");
+    expect({ agents: await read(folder, "AGENTS.md"), claude: await read(folder, "CLAUDE.md") }).toEqual(instructions);
+    expect(status(folder)).toEqual(before.status);
+    expect(await block(repo, folder)).toBeNull();
+    await copied(folder);
+    await expectMirrorRecordsMatchDisk(folder, { ...pristine, "AGENTS.md": "" });
+
+    // A folder outside any repository: apkit created AGENTS.md and added the CLAUDE.md line, and both go.
+    const plain = await tempDir("plain");
+    await writeTree(plain, { "CLAUDE.md": "# Mine\n" });
+    const mine = await tree(plain);
+    expect(cli(home, plain, "install", "engineering", "--agents", "claude,codex", "--yes").code).toBe(0);
+    const outside = cli(home, plain, "mirror", repo);
+    expect(outside.code).toBe(3);
+    expect(outside.out).toContain("    - AGENTS.md: will be deleted; not tracked by Git.\n    - CLAUDE.md: will be changed; not tracked by Git.\n");
+    const done = runNext(home, plain, outside.out);
+    expect([done.code, done.err]).toEqual([0, ""]);
+    expect(done.out).toContain("    - AGENTS.md: deleted; not tracked by Git.\n    - CLAUDE.md: changed; not tracked by Git.\n");
+    expect(existsSync(join(plain, "AGENTS.md"))).toBe(false);
+    expect(await read(plain, "CLAUDE.md")).toBe("# Mine\n");
+    await copied(plain);
+    await expectMirrorRecordsMatchDisk(plain, mine);
+  }, SLOW);
+
+  test("a mirror into the home folder never deletes a file the User-Level Installation also owns", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    expect(cli(home, home, "workspace", ws).code).toBe(0);
+    expect(cli(home, home, "install", "skills-only", "--agents", "claude").code).toBe(0);
+    expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude").code).toBe(0);
+    const from = await tempDir("from");
+    expect(cli(home, from, "install", "skills-only", "--agents", "codex").code).toBe(0);
+    const granted = cli(home, home, "mirror", from, home, "--overwrite");
+    expect([granted.code, granted.err]).toEqual([0, ""]);
+    expect(JSON.parse(await read(home, ".agents/apkit.json")).mirror).toBe(from);
+    expect(await read(home, ".claude/skills/summarize/SKILL.md")).toBe(SKILL("summarize"));
+    expect(cli(home, home, "status", "--global").out).toBe("User level: 'skills-only' for Claude Code is up to date.\n");
   }, SLOW);
 });
 

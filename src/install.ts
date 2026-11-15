@@ -6,7 +6,8 @@ import { chmod, lstat, mkdir, readdir, readFile, readlink, realpath, rename, rmd
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isTracked } from "./gitindex.js";
 import { addClaudeImport, hasClaudeImport, readBlock, removeClaudeImport, writeBlock } from "./instructions.js";
-import { isAgentId, type AgentId, type Desired } from "./render.js";
+import { display } from "./output.js";
+import { AGENTS, isAgentId, type AgentId, type Desired } from "./render.js";
 import type { NoteRecords } from "./setup.js";
 import { refuseNewer } from "./schema.js";
 
@@ -72,7 +73,9 @@ export type IssueKind =
   /** A file apkit did not write is in the way. Replaced only with `--overwrite`. */
   | "unowned"
   /** A symlink would take writes or deletions outside the target. Allowed by `--yes`. */
-  | "outside";
+  | "outside"
+  /** The folder holds the other kind of installation, which the plan replaces. Replaced only with `--overwrite`. */
+  | "installation";
 
 export interface Issue {
   readonly kind: IssueKind;
@@ -89,7 +92,8 @@ type Op =
 /** What the plan does to one instruction file, so the user can decide before it happens (ISC-86). */
 export interface InstructionChange {
   readonly path: "AGENTS.md" | "CLAUDE.md";
-  readonly action: "create" | "change" | "delete";
+  /** "leave": a mirror leaves a file Git tracks as it is, with what a Profile Installation put in it. */
+  readonly action: "create" | "change" | "delete" | "leave";
   /** Whether Git tracks the file. */
   readonly tracked: boolean;
 }
@@ -305,9 +309,15 @@ export interface PlanOptions {
  * Plans an install or update (desired) or a removal (desired null). Writes nothing.
  * A user-level install's Context goes in user-level files (see setup.ts), not in the target's AGENTS.md.
  */
-export async function plan(target: string, desired: Desired | null, previous: Manifest | null, options: PlanOptions = {}): Promise<Plan> {
+export async function plan(target: string, desired: Desired | null, recorded: Manifest | MirrorManifest | null, options: PlanOptions = {}): Promise<Plan> {
+  // A mirror's record, read as an install that wrote no Context Section, no AGENTS.md, and no CLAUDE.md line.
+  const previous: Manifest | null = recorded?.schema === MIRROR_SCHEMA ? { ...recorded, schema: 1, block: null, createdAgentsMd: false, claudeImport: false } : recorded;
   const ops: Op[] = [];
   const issues: Issue[] = [];
+  // The other kind of installation is there: replacing it is the user's Decision (ISC-103).
+  if (desired !== null && recorded !== null && (recorded.schema === MIRROR_SCHEMA) !== (options.mirror !== undefined)) {
+    issues.push({ kind: "installation", path: MANIFEST_PATH, message: replacing(recorded, options.mirror) });
+  }
   const files: Record<string, string> = {};
   const owned = previous?.files ?? {};
   const shared = options.shared ?? new Set<string>();
@@ -407,6 +417,14 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     ops.push({ type: "text", path: "CLAUDE.md", absolute: claudePath, text: remaining });
   }
 
+  // A mirror never changes a file Git tracks (ISC-97): what a Profile Installation put in one stays as it is.
+  const left = new Set<string>();
+  if (options.mirror !== undefined) {
+    for (const op of ops) if (op.type === "text" && (await isTracked(target, op.path))) left.add(op.path);
+    ops.splice(0, ops.length, ...ops.filter((op) => op.type !== "text" || !left.has(op.path)));
+    issues.splice(0, issues.length, ...issues.filter((issue) => !left.has(issue.path)));
+  }
+
   // The Project folders this install created: what it created before, and what its writes create now.
   // A folder that was there first is the user's, and stays out. User-level installs keep no record.
   const project = (desired?.scope ?? previous?.scope) === undefined;
@@ -470,9 +488,20 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     const action = before === null ? "create" : op.text === null ? "delete" : "change";
     instructions.push({ path, action, tracked: await isTracked(target, path) });
   }
+  for (const path of left) instructions.push({ path: path as InstructionChange["path"], action: "leave", tracked: true });
+  instructions.sort((a, b) => a.path.localeCompare(b.path));
 
   const prune = recording ? (previous?.folders ?? []).map((dir) => abs(target, dir)) : null;
   return { target, manifestPath, ops, issues, instructions, manifest, manifestBefore, pruneLimits: options.pruneLimits ?? [], prune };
+}
+
+/** The Decision's message when a plan replaces the other kind of installation (ISC-103). */
+function replacing(recorded: Manifest | MirrorManifest, mirror: string | undefined): string {
+  if (recorded.schema === MIRROR_SCHEMA) {
+    return `This folder holds a Mirrored Installation of ${display(recorded.mirror)}. apkit replaces it with a Profile Installation.`;
+  }
+  const agents = recorded.agents.map((id) => AGENTS[id].name).join(", ");
+  return `This folder holds a Profile Installation of '${recorded.profile}' for ${agents}. apkit replaces it with a Mirrored Installation of ${display(mirror!)}.`;
 }
 
 function manifestText(manifest: Manifest | MirrorManifest): string {
