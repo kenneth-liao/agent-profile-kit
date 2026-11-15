@@ -7,6 +7,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { COMMANDS } from "../src/command.js";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { hash } from "../src/install.js";
+import { quoteArgument as q } from "../src/output.js";
 import { readBlock, writeBlock } from "../src/instructions.js";
 import { AGENTS, type AgentId } from "../src/render.js";
 import { refuseNewer } from "../src/schema.js";
@@ -1939,7 +1940,8 @@ describe("several agents in linked worktrees", () => {
   const ALL = Object.keys(AGENTS) as (keyof typeof AGENTS)[];
 
   function git(cwd: string, ...args: string[]): string {
-    const result = spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, encoding: "utf8" });
+    // Pin line endings so the runner's Git settings (Windows autocrlf) cannot rewrite a committed file on checkout.
+    const result = spawnSync("git", ["-c", "core.autocrlf=false", "-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, encoding: "utf8" });
     if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
     return result.stdout;
   }
@@ -2174,7 +2176,7 @@ describe("several agents in linked worktrees", () => {
     const folder = await worktree();
     const { json } = await expectRefused(home, repo, folder, [first], 1, [repo, first, folder]);
     expect(json).toBe(
-      `${first} holds a Mirrored Installation of ${repo}, not a Profile Installation. Mirror ${repo} in its place. Nothing was changed.\nNext: \`apkit mirror ${repo} ${folder}\``,
+      `${first} holds a Mirrored Installation of ${repo}, not a Profile Installation. Mirror ${repo} in its place. Nothing was changed.\nNext: \`apkit mirror ${q(repo)} ${q(folder)}\``,
     );
     expect(cli(home, folder, "mirror", repo).code).toBe(0);
   }, SLOW);
@@ -2512,7 +2514,7 @@ describe("several agents in linked worktrees", () => {
     const blocked = cli(home, folder, "remove");
     expect(blocked.code).toBe(3);
     expect(blocked.out).toContain(".claude/skills/review/SKILL.md was changed after apkit wrote it, and would be deleted.");
-    expect(blocked.out).toContain(`Next: \`apkit remove ${folder} --overwrite\``);
+    expect(blocked.out).toContain(`Next: \`apkit remove ${q(folder)} --overwrite\``);
     expect(await tree(folder)).toEqual(changed);
 
     const removed = cli(home, repo, "remove", folder, "--overwrite");
@@ -2573,7 +2575,7 @@ describe("several agents in linked worktrees", () => {
     const blocked = cli(home, folder, "mirror", repo);
     expect(blocked.code).toBe(3);
     expect(blocked.out).toContain(".claude/skills/summarize/SKILL.md exists and was not written by apkit.");
-    expect(blocked.out).toContain(`Next: \`apkit mirror ${repo} ${folder} --overwrite\``);
+    expect(blocked.out).toContain(`Next: \`apkit mirror ${q(repo)} ${q(folder)} --overwrite\``);
     expect(await tree(folder)).toEqual(before);
     expect(cli(home, repo, "mirror", repo, folder, "--overwrite").code).toBe(0);
     expect(await read(folder, ".claude/skills/summarize/SKILL.md")).toBe(await read(repo, ".claude/skills/summarize/SKILL.md"));
@@ -2583,7 +2585,10 @@ describe("several agents in linked worktrees", () => {
   function runNext(home: string, cwd: string, out: string) {
     const line = /^ {2}Next: `apkit (.+)`$/m.exec(out)?.[1];
     expect(line).toBeDefined();
-    return cli(home, cwd, ...line!.split(" "));
+    // Split as a POSIX shell does for the quoting apkit prints: a word joins bare text and '...' runs.
+    const words = line!.match(/(?:[^\s']+|'[^']*')+/g)!.map((word) => word.replace(/'([^']*)'/g, "$1"));
+    expect(words.map(q).join(" ")).toBe(line!);
+    return cli(home, cwd, ...words);
   }
 
   test("install or update in a folder that holds a Mirrored Installation changes nothing without the Decision, exits 3, and names the folder it mirrors", async () => {
@@ -2594,8 +2599,8 @@ describe("several agents in linked worktrees", () => {
     const before = await now();
     for (const [args, next] of [
       // `--yes` alone, the habit for an install that creates AGENTS.md, does not grant it.
-      [["install", "engineering", "--agents", "claude", "--yes"], `apkit install engineering ${folder} --agents claude --yes --overwrite`],
-      [["update"], `apkit update ${folder} --yes --overwrite`],
+      [["install", "engineering", "--agents", "claude", "--yes"], `apkit install engineering ${q(folder)} --agents claude --yes --overwrite`],
+      [["update"], `apkit update ${q(folder)} --yes --overwrite`],
     ] as const) {
       const result = cli(home, folder, ...args);
       expect([args[0], result.code, result.err]).toEqual([args[0], 3, ""]);
@@ -2680,7 +2685,7 @@ describe("several agents in linked worktrees", () => {
     expect([blocked.code, blocked.err]).toEqual([3, ""]);
     expect(blocked.out).toContain(`${folder}: nothing changed. Needs a decision:\n  - ${decision}\n`);
     expect(blocked.out).toContain("    - AGENTS.md: left as it is, because Git tracks it.\n    - CLAUDE.md: left as it is, because Git tracks it.\n");
-    expect(blocked.out).toContain(`  Only after the user agrees:\n  Next: \`apkit mirror ${repo} ${folder} --overwrite\`\n`);
+    expect(blocked.out).toContain(`  Only after the user agrees:\n  Next: \`apkit mirror ${q(repo)} ${q(folder)} --overwrite\`\n`);
     expect(await now()).toEqual(before);
 
     const granted = runNext(home, folder, blocked.out);
@@ -2886,7 +2891,7 @@ describe("several agents in linked worktrees", () => {
     expect(blocked.code).toBe(3);
     expect(blocked.out).toContain(".claude/skills/summarize/SKILL.md was changed after apkit wrote it.");
     expect(blocked.out).toContain(".claude/skills/review/SKILL.md was changed after apkit wrote it, and would be deleted.");
-    expect(blocked.out).toContain(`Next: \`apkit mirror ${repo} ${folder} --overwrite\``);
+    expect(blocked.out).toContain(`Next: \`apkit mirror ${q(repo)} ${q(folder)} --overwrite\``);
     expect(await tree(folder)).toEqual(changed);
 
     const overwrite = cli(home, folder, "mirror", repo, "--overwrite");
