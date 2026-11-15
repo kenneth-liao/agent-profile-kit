@@ -137,12 +137,20 @@ and the next manifest. `execute` runs only after every Decision is settled.
   `plan`, which records no Context Section and no `CLAUDE.md` line, so it
   deletes only the copies, the manifest, and the recorded folders left empty,
   and touches neither file.
+- **Replacing the other kind.** After the `installation` Decision, either kind
+  replaces the other under the same hash rules, with the other kind's record as
+  `previous`. A mirror that replaces a Profile Installation removes its Context
+  Section and `CLAUDE.md` line only from an instruction file Git does not
+  track, leaves a tracked one as it is (ISC-97), and removes the folder's
+  exclusion block and Local Configuration entry.
 - **Decisions.** `consent` (an edit to `AGENTS.md`, `CLAUDE.md`, or a
   user-level instruction file, or taking over a file apkit did not write that
   already has the same content) and `outside` (a symlink would take a write or
   deletion outside the folder) are settled by `--yes`. `changed` (a file or
-  section apkit wrote was changed) and `unowned` (a file apkit did not write is
-  in the way) are settled by `--overwrite`.
+  section apkit wrote was changed), `unowned` (a file apkit did not write is
+  in the way), and `installation` (the folder holds the other kind of
+  installation: a Mirrored Installation for `install` or `update`, a Profile
+  Installation for `mirror`) are settled by `--overwrite`.
 - **Context Section.** Context goes in one marked `apkit` section of
   `AGENTS.md`, which every supported Host loads. When `CLAUDE.md` exists and
   Claude Code is selected, `CLAUDE.md` gets one `@AGENTS.md` line, because

@@ -4,9 +4,11 @@
 // Contribution, and no Local Configuration entry: deleting the folder is the whole cleanup.
 import { readFile, realpath, stat } from "node:fs/promises";
 import { relative, sep } from "node:path";
+import { recordInstall } from "./config.js";
+import { syncGitExclude } from "./gitexclude.js";
 import { findRepository } from "./gitindex.js";
 import { abs, changesManifest, execute, plan, readManifest, readMirror, unresolved, type Decisions, type Manifest, type MirrorManifest } from "./install.js";
-import { trustNeeds, type Outcome, type TrustNeed } from "./location.js";
+import { globalTarget, previousAt, trustNeeds, type Outcome, type TrustNeed } from "./location.js";
 import { display, nextCommand } from "./output.js";
 import type { Desired, DesiredFile } from "./render.js";
 
@@ -27,10 +29,15 @@ export async function mirror(from: string, folder: string, decisions: Decisions)
     if (info === null || !info.isFile()) continue;
     files.set(path, { bytes: new Uint8Array(await readFile(full)), executable: (info.mode & 0o111) !== 0 });
   }
-  // No Context: the plan touches no AGENTS.md or CLAUDE.md. A second run plans against the mirror's
-  // own record, so it replaces and deletes only copies it wrote that nobody changed since.
+  // No Context: the plan writes no AGENTS.md or CLAUDE.md. A second run plans against the mirror's
+  // own record, so it replaces and deletes only copies it wrote that nobody changed since. A Profile
+  // Installation it replaces (a Decision, ISC-103) loses its Context Section and CLAUDE.md line only
+  // where Git does not track the file.
   const desired: Desired = { profile: source.profile, agents: source.agents, files, context: null, contextIds: [] };
-  const planned = await plan(folder, desired, previous, { mirror: from });
+  // In the home folder, a file the User-Level Installation also owns is never deleted.
+  const global = await globalTarget();
+  const shared = new Set(Object.keys((folder === global.folder ? await previousAt(global) : null)?.files ?? {}));
+  const planned = await plan(folder, desired, previous, { mirror: from, shared });
   const open = unresolved(planned, decisions);
   const base = { folder, mirror: from, profile: source.profile, agents: source.agents, instructions: planned.instructions };
   if (open.length > 0) return { outcome: { ...base, result: "needs-decision", issues: open }, trust: [] };
@@ -38,6 +45,8 @@ export async function mirror(from: string, folder: string, decisions: Decisions)
     return { outcome: { ...base, result: "unchanged" }, trust: trustNeeds(desired) };
   }
   await execute(planned);
+  // Nothing of a Profile Installation it replaced is left: its exclusion block and Local Configuration entry go too.
+  if (previous?.schema === 1) await recordInstall(folder, false, await syncGitExclude(folder, null));
   const deleted = planned.ops.flatMap((op) => (op.type === "delete" ? [op.path] : []));
   return {
     outcome: { ...base, result: "mirrored", changed: planned.ops.map((op) => op.path), ...(deleted.length === 0 ? {} : { deleted }) },
@@ -60,13 +69,13 @@ export async function removeMirror(folder: string, record: MirrorManifest, decis
 }
 
 /**
- * The named folder's Profile Installation, and the folder's own mirror record of it when this is a
- * second run, after the checks that keep a mirror from damaging an installation. A folder that
- * mirrors a different folder stops with an error and changes nothing. `folder == from` is refused
- * before the lock, in the CLI. Interim: #806 owns a mirror into a Profile Installation.
- * Each stops with an error and changes nothing.
+ * The named folder's Profile Installation, and the folder's own record: its mirror of the same folder
+ * when this is a second run, or a Profile Installation the mirror replaces after the user's Decision
+ * (ISC-103), after the checks that keep a mirror from damaging an installation. A folder that mirrors
+ * a different folder stops with an error and changes nothing. `folder == from` is refused before the
+ * lock, in the CLI.
  */
-async function sourceInstallation(from: string, folder: string): Promise<{ source: Manifest; previous: MirrorManifest | null }> {
+async function sourceInstallation(from: string, folder: string): Promise<{ source: Manifest; previous: Manifest | MirrorManifest | null }> {
   const named = await readMirror(from);
   if (named !== null) {
     const original = display(named.mirror);
@@ -82,11 +91,7 @@ async function sourceInstallation(from: string, folder: string): Promise<{ sourc
     throw new Error(`${display(folder)} holds a Mirrored Installation of ${display(mirrored.mirror)}, not of ${display(from)}. Nothing was changed.`);
   }
   if (mirrored !== null) return { source, previous: mirrored };
-  const installed = await readManifest(folder);
-  if (installed !== null) {
-    throw new Error(`${display(folder)} already holds a Profile Installation of '${installed.profile}'. Nothing was changed.`);
-  }
-  return { source, previous: null };
+  return { source, previous: await readManifest(folder) };
 }
 
 /**

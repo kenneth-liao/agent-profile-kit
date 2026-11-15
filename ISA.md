@@ -493,7 +493,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: update the named folder and compare the mirror before and after; any
   change fails. Then run the mirror command again; any installed file that
   differs from the named folder's fails. bash
-- [ ] **ISC-103:** **Anti:** `install` or `update` in a folder that holds a
+- [x] **ISC-103:** **Anti:** `install` or `update` in a folder that holds a
   Mirrored Installation changes nothing without the user's Decision.
   Probe: run each without the Decision; any changed file, an exit status other
   than 3, or output that does not name the folder the installation mirrors,
@@ -870,3 +870,4 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-100: `test/cli.test.ts` "a mirror leaves no record outside its folder: after git worktree remove --force and no apkit command, the folder is in no status --all, Local Configuration, or exclude file" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-101: `test/cli.test.ts` "status --all and update --all never list or change a mirror" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-102: `test/cli.test.ts` "a change to the named folder's installation never changes an existing mirror"; "the same mirror command run again brings the mirror level with the named folder, and says what changed"; supported by "running mirror again deletes a copy the named folder no longer has, with the folders that become empty, and nothing else" and "a copy changed in a mirrored folder is a Decision: nothing changes, exit 3, and the Next line carries --overwrite" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-103: `test/cli.test.ts` "install or update in a folder that holds a Mirrored Installation changes nothing without the Decision, exits 3, and names the folder it mirrors" (also with `APKIT_CLI=dist/cli.js`)

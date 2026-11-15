@@ -201,7 +201,10 @@ copies, its Profile, and its agents, without reading the Workspace. To clean
 up, delete the folder. To keep the folder, run \`${COMMAND} remove [folder]\`:
 it deletes only the mirror's copies and the empty folders it created. Use
 \`${COMMAND} install\` when the folder should get the Workspace's current
-Profile and its Context.
+Profile and its Context. A mirror into a folder that holds an install, and
+\`install\` or \`update\` in a mirror, is a Decision: with --overwrite the
+folder ends as the one kind of installation the command makes. A mirror never
+changes an instruction file that Git tracks.
 
 ## Decisions (exit code 3)
 
@@ -219,7 +222,8 @@ Next lines are for you to run, not for the user to type.
   ${COMMAND} would take over, tell the user that a later remove deletes it.
   Add --yes only after the user agrees.
 - Add --overwrite only after the user explicitly agrees to discard the files
-  it lists: files that were changed, or that ${COMMAND} did not write. Never pass --overwrite on your own judgment. If the user
+  it lists: files that were changed, or that ${COMMAND} did not write, or the
+  other kind of installation in the folder. Never pass --overwrite on your own judgment. If the user
   wants to keep a change, move it into the Workspace first, then update.
 
 ## After installing
