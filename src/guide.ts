@@ -190,7 +190,10 @@ linked worktree of the user's checkout, run
 copies the files that <from> has installed now, for every agent of that
 installation, and needs no Workspace. It writes no AGENTS.md or CLAUDE.md, so
 the worktree keeps the instruction files its branch has, and it adds nothing
-to \`git status\`. A mirror does not follow later changes to <from>. Run the
+to \`git status\`. The folder must be outside any Git repository, or in a
+linked worktree of <from>'s repository at the same path from the worktree root;
+elsewhere, and for a <from> with no Profile Installation, the mirror stops and
+changes nothing. A mirror does not follow later changes to <from>. Run the
 same command again to bring it level with <from>: it replaces and deletes only
 copies it wrote, a copy changed in the folder is a Decision, and with nothing
 to change it says so. \`${COMMAND} status <folder>\` names the folder a mirror

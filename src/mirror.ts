@@ -2,12 +2,14 @@
 // (ADR-0062). It reads only the named folder, never the Workspace, and writes real copies of
 // its installed files and the mirror record. No instruction file, no Repository Exclusion
 // Contribution, and no Local Configuration entry: deleting the folder is the whole cleanup.
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { relative, sep } from "node:path";
 import { recordInstall } from "./config.js";
 import { syncGitExclude } from "./gitexclude.js";
+import { findRepository } from "./gitindex.js";
 import { abs, changesManifest, execute, plan, readManifest, readMirror, unresolved, type Decisions, type Manifest, type MirrorManifest } from "./install.js";
 import { globalTarget, previousAt, trustNeeds, type Outcome, type TrustNeed } from "./location.js";
-import { display } from "./output.js";
+import { display, nextCommand } from "./output.js";
 import type { Desired, DesiredFile } from "./render.js";
 
 export interface MirrorRun {
@@ -69,22 +71,53 @@ export async function removeMirror(folder: string, record: MirrorManifest, decis
 /**
  * The named folder's Profile Installation, and the folder's own record: its mirror of the same folder
  * when this is a second run, or a Profile Installation the mirror replaces after the user's Decision
- * (ISC-103). A folder that mirrors a different folder stops with an error and changes nothing.
- * Interim: #803 owns the refusals for the named folder and for `folder == from`, which stop with an
- * error and change nothing.
+ * (ISC-103), after the checks that keep a mirror from damaging an installation. A folder that mirrors
+ * a different folder stops with an error and changes nothing. `folder == from` is refused before the
+ * lock, in the CLI.
  */
 async function sourceInstallation(from: string, folder: string): Promise<{ source: Manifest; previous: Manifest | MirrorManifest | null }> {
-  // A named folder that holds a mirror throws MirroredInstallationError here.
+  const named = await readMirror(from);
+  if (named !== null) {
+    const original = display(named.mirror);
+    throw new Error(
+      `${display(from)} holds a Mirrored Installation of ${original}, not a Profile Installation. Mirror ${original} in its place. Nothing was changed.\n${nextCommand(["mirror", named.mirror, folder])}`,
+    );
+  }
   const source = await readManifest(from);
   if (source === null) throw new Error(`${display(from)} holds no Profile Installation to mirror. Nothing was changed.`);
+  await checkPlace(from, folder);
   const mirrored = await readMirror(folder);
   if (mirrored !== null && mirrored.mirror !== from) {
     throw new Error(`${display(folder)} holds a Mirrored Installation of ${display(mirrored.mirror)}, not of ${display(from)}. Nothing was changed.`);
   }
   if (mirrored !== null) return { source, previous: mirrored };
-  const installed = await readManifest(folder);
-  if (installed !== null && folder === from) {
-    throw new Error(`${display(folder)} already holds a Profile Installation of '${installed.profile}'. Nothing was changed.`);
+  return { source, previous: await readManifest(folder) };
+}
+
+/**
+ * Refuses a folder in a Git repository where `from`'s Repository Exclusion Contribution does not cover
+ * the copies (DEC-004): another repository, or another path from the root of its worktree. A folder
+ * outside any repository is served. Reads Git's files only, as `findRepository` does.
+ */
+async function checkPlace(from: string, folder: string): Promise<void> {
+  const target = await findRepository(folder);
+  if (target === null) return;
+  const source = await findRepository(from);
+  if (source === null) {
+    throw new Error(
+      `${display(folder)} is in a Git repository and ${display(from)} is in none, so no Repository Exclusion Contribution covers the copies. A mirror of ${display(from)} goes into a folder outside any Git repository. Nothing was changed.`,
+    );
   }
-  return { source, previous: installed };
+  const covers = `so ${display(from)}'s Repository Exclusion Contribution does not cover the copies.`;
+  const served = `A mirror goes into a folder outside any Git repository, or into a linked worktree of ${display(from)}'s repository at the same path from the worktree root. Nothing was changed.`;
+  const real = (path: string) => realpath(path).catch(() => path);
+  if ((await real(target.commonDir)) !== (await real(source.commonDir))) {
+    throw new Error(`${display(folder)} is in another Git repository than ${display(from)}, ${covers} ${served}`);
+  }
+  const at = (root: string, path: string) => relative(root, path).split(sep).join("/");
+  const [here, there] = [at(target.root, folder), at(source.root, from)];
+  if (here !== there) {
+    const where = (path: string) => (path === "" ? "the root" : path);
+    throw new Error(`${display(folder)} is at ${where(here)} from the root of its worktree, and ${display(from)} at ${where(there)}, ${covers} ${served}`);
+  }
 }
