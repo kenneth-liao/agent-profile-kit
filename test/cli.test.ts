@@ -2305,12 +2305,56 @@ describe("several agents in linked worktrees", () => {
 
     // This apkit never takes the mirror for a Profile Installation: each command stops and changes nothing.
     const before = await tree(folder);
-    for (const args of [["install", "engineering", "--agents", "claude", "--yes", "--overwrite"], ["update", "--yes", "--overwrite"], ["remove", "--yes", "--overwrite"], ["status"]]) {
+    for (const args of [["install", "engineering", "--agents", "claude", "--yes", "--overwrite"], ["update", "--yes", "--overwrite"], ["remove", "--yes", "--overwrite"]]) {
       const result = cli(home, folder, ...args);
       expect([args[0], result.code]).toEqual([args[0], 1]);
       expect(result.err).toContain(`holds a Mirrored Installation of ${repo}`);
       expect(await tree(folder)).toEqual(before);
     }
+  }, SLOW);
+
+  test("status names the folder a Mirrored Installation mirrors, its Profile, and its agents, and never reads the Workspace", async () => {
+    const { home, repo, worktree } = await installedRepository();
+    const folder = await worktree();
+    expect(cli(home, folder, "mirror", repo).code).toBe(0);
+    const before = await tree(folder);
+    const names = ALL.map((id) => AGENTS[id].name).join(", ");
+    const expected = {
+      text: `${folder}: 'engineering' for ${names} is a Mirrored Installation of ${repo}.\n`,
+      json: { results: [{ folder, mirror: repo, profile: "engineering", agents: ALL, result: "mirrored" }] },
+    };
+    const both = (run: (...args: string[]) => { code: number | null; out: string; err: string }) => {
+      const text = run("status", folder);
+      const json = run("status", folder, "--json");
+      expect([text.code, text.err, json.code, json.err]).toEqual([0, "", 0, ""]);
+      return { text: text.out, json: JSON.parse(json.out) };
+    };
+    expect(both((...args) => cli(home, repo, ...args))).toEqual(expected);
+
+    // The same answer after the Workspace changes, with a Workspace that lacks the Profile, and with no Workspace.
+    const ws = JSON.parse(cli(home, repo, "workspace", "--json").out).workspace as string;
+    await writeTree(ws, { "skills/summarize/SKILL.md": SKILL("summarize", "version: 2\n") });
+    expect(both((...args) => cli(home, repo, ...args))).toEqual(expected);
+    const lacking = await makeWorkspace();
+    await rm(join(lacking, "profiles", "engineering.yaml"));
+    expect(both((...args) => cli(home, repo, ...args, "--workspace", lacking))).toEqual(expected);
+    const fresh = await tempDir("home");
+    expect(both((...args) => cli(fresh, repo, ...args))).toEqual(expected);
+    expect(await tree(folder)).toEqual(before);
+
+    // The named folder's Profile Installation still reports against the Workspace.
+    expect(JSON.parse(cli(home, repo, "status", "--json").out).results).toMatchObject([{ folder: repo, profile: "engineering", result: "updated" }]);
+
+    // A mirror record this apkit cannot read keeps today's message and exit status.
+    const manifest = JSON.parse(await read(folder, ".agents/apkit.json"));
+    await writeTree(folder, { ".agents/apkit.json": JSON.stringify({ ...manifest, mirror: 7 }) });
+    const malformed = cli(home, folder, "status");
+    expect([malformed.code, malformed.out]).toEqual([1, ""]);
+    expect(malformed.err).toContain(`.agents/apkit.json in ${folder} is not a manifest this version understands.`);
+    await writeTree(folder, { ".agents/apkit.json": JSON.stringify({ ...manifest, schema: 3 }) });
+    const newer = cli(home, folder, "status");
+    expect([newer.code, newer.err]).toEqual([0, ""]);
+    expect(newer.out).toContain(`.agents/apkit.json in ${folder} was written by a newer apkit (schema 3; this apkit reads schema 2).`);
   }, SLOW);
 
   test("a file in the way of a mirror is a Decision: nothing changes, exit 3, and the Next line is the complete mirror command", async () => {

@@ -498,10 +498,13 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: run each without the Decision; any changed file, an exit status other
   than 3, or output that does not name the folder the installation mirrors,
   fails. bash
-- [ ] **ISC-104:** `status` for a folder that holds a Mirrored Installation
+- [x] **ISC-104:** `status` for a folder that holds a Mirrored Installation
   names the folder it mirrors.
   Probe: `status <folder>` after a mirror; output without the named folder
   fails. bash
+  Verification: `test/cli.test.ts` "status names the folder a Mirrored
+  Installation mirrors, its Profile, and its agents, and never reads the
+  Workspace".
 
 ## Not yet specified
 
