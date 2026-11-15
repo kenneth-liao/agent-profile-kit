@@ -30,6 +30,7 @@ It is a small command for an agent to drive:
 | `src/command.ts` | The command name (`apkit`) used in every printed command |
 | `src/output.ts` | Rules every human output shares: paths shown with `~`, quoted Next commands, grouped warnings |
 | `src/location.ts` | One install location (a project folder or the User-Level Installation): planning it against the Workspace and applying it; commands and `migrate` share it |
+| `src/mirror.ts` | `apkit mirror`: copying a named folder's Profile Installation into a folder as a Mirrored Installation (ADR-0062) |
 | `src/migrate.ts` | `apkit migrate` behind one entry point: reading the released engine's state, taking over each recorded Project, selecting the Workspace, and renaming the old state to its backup |
 | `src/guide.ts` | `apkit help`, `apkit guide`, and the bundled Workspace contract (`apkit contract`) |
 | `src/workspace.ts` | Reading and validating a Workspace; `init` |
@@ -48,8 +49,8 @@ It is a small command for an agent to drive:
 
 ## Commands
 
-`init`, `workspace`, `check`, `install`, `update`, `remove`, `status`, and
-`setup`, plus `help`, `guide`, and `contract`. Flags: `--agents a,b`, `--yes`,
+`init`, `workspace`, `check`, `install`, `mirror`, `update`, `remove`,
+`status`, and `setup`, plus `help`, `guide`, and `contract`. Flags: `--agents a,b`, `--yes`,
 `--overwrite`, `--global`, `--all`, `--remove` (with `setup`), `--json`, and
 `--workspace <path>` (one run only). `apkit migrate` moves an installation of
 the released engine to this one; see [Migration from the released engine](#migration-from-the-released-engine).
@@ -112,6 +113,21 @@ and the next manifest. `execute` runs only after every Decision is settled.
   created. Hashes ignore CRLF versus LF.
   Every field is checked when read, so planning never trusts a path or record
   it did not write.
+- **Mirrored Installation manifest.** A mirror's `.agents/apkit.json` is
+  schema 2: the absolute path of the folder it mirrors (`mirror`), the
+  Profile, the Hosts, a hash of each file it wrote, and the folders it
+  created. Profile Installation manifests stay schema 1. Every released apkit
+  reads schema 1 only, so it stops on a mirror and names the update, and never
+  takes the mirror for a Profile Installation (ISC-83). `readMirror` in
+  `src/install.ts` is the one reader of this record; `readManifest` refuses a
+  mirror.
+- **Mirror.** `apkit mirror <from> [folder]` reads only `<from>`: its
+  Installation Manifest and the bytes on disk at each path it lists, as they
+  are (a listed file that is gone is not copied). It plans the copies with
+  `plan` and no Context, so it writes no instruction file, and settles the same
+  Decisions. It writes no Repository Exclusion Contribution and no Local
+  Configuration entry: in a linked worktree of `<from>`'s repository,
+  `<from>`'s block covers the same paths.
 - **Decisions.** `consent` (an edit to `AGENTS.md`, `CLAUDE.md`, or a
   user-level instruction file, or taking over a file apkit did not write that
   already has the same content) and `outside` (a symlink would take a write or
@@ -183,7 +199,7 @@ visit every listed folder and then the User-Level Installation, if
 
 ## Concurrency
 
-`init`, `workspace`, `install`, `update`, `remove`, `setup`, and `migrate` hold
+`init`, `workspace`, `install`, `mirror`, `update`, `remove`, `setup`, and `migrate` hold
 `<APKIT_HOME>/lock` from their first read to their last write, so runs that
 write take turns and each plans against the disk as the previous run left it.
 `status`, `check`, `guide`, `contract`, and `help` do not take it. Taking the
@@ -196,7 +212,8 @@ waits at most 120 seconds (ADR-0058).
 ## Schema versions
 
 `config.json` and every Installation Manifest carry a schema number
-(`src/schema.ts`). An apkit that finds a newer number stops, changes nothing,
+(`src/schema.ts`). A project Installation Manifest is schema 1 for a Profile
+Installation and schema 2 for a Mirrored Installation. An apkit that finds a newer number stops, changes nothing,
 and names the update. A newer `schema_version` in `apkit-workspace.yaml` is a
 Workspace Error that names the update.
 

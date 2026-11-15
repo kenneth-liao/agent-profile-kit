@@ -35,6 +35,8 @@ Usage:
                                          Install a Profile (folder defaults to the current one)
   ${COMMAND} install <profile> --global --agents <a,b>
                                          Install a Profile for every project (user level)
+  ${COMMAND} mirror <from> [folder]           Copy the installation of <from> into a folder, such as
+                                         a worker's linked worktree (no Workspace needed)
   ${COMMAND} update [folder | --all]          Re-install from the current Workspace
   ${COMMAND} remove [folder | --global]       Remove everything apkit installed there
   ${COMMAND} status [folder | --all | --global]
@@ -108,6 +110,7 @@ selected Workspace.
 - Validate and list Profiles:        \`${COMMAND} check\`
 - Install into a folder:             \`${COMMAND} install <profile> [folder] --agents <ids>\`
 - Install for every project:         \`${COMMAND} install <profile> --global --agents <ids>\`
+- Copy another folder's installation: \`${COMMAND} mirror <from> [folder]\`
 - Apply Workspace edits everywhere:  \`${COMMAND} update --all\`
 - See what is installed or stale:    \`${COMMAND} status --all\`
 - Uninstall from a folder:           \`${COMMAND} remove [folder]\`
@@ -178,6 +181,18 @@ projects. After setup, offer to gather them into the Workspace:
   creates a file that would hide one the agent already reads, and
   \`remove --global\` restores each file exactly. It is kept apart from any
   install in the home folder itself; \`update --all\` and \`status --all\` include it.
+
+## Worker worktrees
+
+When a folder must run the same Skills as another folder, such as a worker's
+linked worktree of the user's checkout, run
+\`${COMMAND} mirror <from> [folder]\` in place of \`${COMMAND} install\`. It
+copies the files that <from> has installed now, for every agent of that
+installation, and needs no Workspace. It writes no AGENTS.md or CLAUDE.md, so
+the worktree keeps the instruction files its branch has, and it adds nothing
+to \`git status\`. A mirror does not follow later changes to <from>. To clean
+up, delete the folder. Use \`${COMMAND} install\` when the folder should get
+the Workspace's current Profile and its Context.
 
 ## Decisions (exit code 3)
 

@@ -8,7 +8,7 @@ import { findRepository } from "./gitindex.js";
 import { atomicWrite, type Manifest } from "./install.js";
 
 /** Exclude patterns for an install in `prefix` (POSIX, from the repository root): each Skill folder and the manifest. Never an instruction file (ISC-87). */
-export function excludePatterns(manifest: Manifest, prefix = ""): string[] {
+export function excludePatterns(manifest: Pick<Manifest, "files">, prefix = ""): string[] {
   const base = prefix === "" ? "" : `/${literal(prefix)}`;
   const patterns = new Set<string>([`${base}/.agents/apkit.json`]);
   for (const path of Object.keys(manifest.files)) {
@@ -29,7 +29,7 @@ function literal(path: string): string {
  * file of the repository that holds it. Returns that exclude file, or null
  * outside a repository, so a block can still be removed after the folder is gone.
  */
-export async function syncGitExclude(target: string, manifest: Manifest | null): Promise<string | null> {
+export async function syncGitExclude(target: string, manifest: Pick<Manifest, "files" | "scope"> | null): Promise<string | null> {
   if (manifest?.scope === "user") return null;
   const repository = await findRepository(target);
   if (repository === null) return null;

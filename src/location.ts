@@ -27,7 +27,9 @@ export interface Outcome {
   readonly folder: string;
   /** The global install (user level), as opposed to a project install in `folder`. */
   readonly global?: true;
-  readonly result: "installed" | "updated" | "removed" | "unchanged" | "needs-decision" | "not-installed" | "missing" | "error";
+  readonly result: "installed" | "mirrored" | "updated" | "removed" | "unchanged" | "needs-decision" | "not-installed" | "missing" | "error";
+  /** For a Mirrored Installation: the folder whose installation it copies. */
+  readonly mirror?: string;
   readonly profile?: string;
   readonly agents?: readonly AgentId[];
   readonly issues?: readonly Issue[];
