@@ -125,7 +125,11 @@ and the next manifest. `execute` runs only after every Decision is settled.
   Installation Manifest and the bytes on disk at each path it lists, as they
   are (a listed file that is gone is not copied). It plans the copies with
   `plan` and no Context, so it writes no instruction file, and settles the same
-  Decisions. It writes no Repository Exclusion Contribution and no Local
+  Decisions. A copy counts as the same only with the same bytes, so a
+  line-ending change is copied; ownership keeps the line-ending-normalized
+  hash. Before any write, a mirror run or a mirror's `remove` stops with an
+  error when its plan would write or delete a file Git tracks or change a
+  tracked manifest (ISC-97); a tracked instruction file is not in the plan. It writes no Repository Exclusion Contribution and no Local
   Configuration entry: in a linked worktree of `<from>`'s repository,
   `<from>`'s block covers the same paths. So before any write it refuses a
   folder in another repository or at another path from the worktree root,
@@ -170,8 +174,10 @@ and the next manifest. `execute` runs only after every Decision is settled.
   removed. If apkit created `AGENTS.md` and only its section was in it, the
   file is deleted.
 - **Two installs in the home folder.** The home folder can hold a project
-  install and the User-Level Installation at once. Each keeps its own manifest
-  and never deletes a file the other also owns.
+  install (a Profile or Mirrored Installation) and the User-Level Installation
+  at once. Each keeps its own manifest and never deletes a file the other also
+  owns. `sharedAt` in `src/location.ts` is the one place that finds the other's
+  files, for install, update, mirror, and remove alike.
 
 ## User level
 

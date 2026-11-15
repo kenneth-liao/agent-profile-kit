@@ -204,7 +204,9 @@ it deletes only the mirror's copies and the empty folders it created. Use
 Profile and its Context. A mirror into a folder that holds an install, and
 \`install\` or \`update\` in a mirror, is a Decision: with --overwrite the
 folder ends as the one kind of installation the command makes. A mirror never
-changes an instruction file that Git tracks.
+changes a file that Git tracks: it leaves a tracked instruction file as it is,
+and a mirror or remove that would change a tracked copy or manifest stops and
+changes nothing, also with --overwrite.
 
 ## Decisions (exit code 3)
 

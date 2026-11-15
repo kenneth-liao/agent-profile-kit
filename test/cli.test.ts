@@ -2277,6 +2277,49 @@ describe("several agents in linked worktrees", () => {
     expect(existsSync(join(bare, "AGENTS.md"))).toBe(false);
   }, SLOW);
 
+  test("a mirror that would change a Skill copy or a manifest Git tracks exits 1, names the tracked paths, and changes nothing, also with --overwrite, run again, and on remove", async () => {
+    const skill = ".claude/skills/summarize/SKILL.md";
+    const { home, repo, worktree } = await repository({ "README.md": "# Repo\n", [skill]: "old\n" });
+    expect(cli(home, repo, "install", "engineering", "--agents", "claude", "--overwrite", "--yes").code).toBe(0);
+    const refused = (folder: string, args: string[], paths: string[]) => {
+      const before = { status: status(folder), tree: tree(folder) };
+      const run = cli(home, folder, ...args);
+      expect([run.code, run.out]).toEqual([1, ""]);
+      for (const path of paths) expect(run.err).toContain(path);
+      expect(run.err).toContain("Nothing was changed.");
+      return before.tree.then(async (was) => {
+        expect(await tree(folder)).toEqual(was);
+        expect(status(folder)).toEqual(before.status);
+      });
+    };
+
+    // A tracked Skill copy that differs from the named folder's.
+    const tracked = await worktree();
+    expect(status(tracked)).toEqual([]);
+    for (const args of [["mirror", repo], ["mirror", repo, "--overwrite"]]) await refused(tracked, args, [skill]);
+    expect(await read(tracked, skill)).toBe("old\n");
+
+    // A tracked manifest: the folder's Profile Installation is committed.
+    const committed = await worktree();
+    await writeTree(committed, { [skill]: SKILL("summarize") });
+    git(committed, "add", "-A");
+    git(committed, "commit", "-qm", "skill");
+    expect(cli(home, committed, "install", "skills-only", "--agents", "claude", "--yes").code).toBe(0);
+    git(committed, "add", "-f", ".agents/apkit.json");
+    git(committed, "commit", "-qm", "manifest");
+    await refused(committed, ["mirror", repo, "--overwrite"], [".agents/apkit.json"]);
+
+    // A copy committed after the mirror: running mirror again and remove would change it.
+    const later = await worktree();
+    await writeTree(later, { [skill]: SKILL("summarize") });
+    git(later, "add", "-A");
+    git(later, "commit", "-qm", "skill");
+    expect(cli(home, later, "mirror", repo, "--yes").code).toBe(0);
+    await updateNamedFolder(home, repo, NEWER);
+    await refused(later, ["mirror", repo], [skill]);
+    await refused(later, ["remove"], [skill]);
+  }, SLOW);
+
   test("no path a mirror creates is a symbolic link", async () => {
     const { home, repo, worktree } = await installedRepository();
     const folder = await worktree();
@@ -2681,6 +2724,47 @@ describe("several agents in linked worktrees", () => {
     expect(cli(home, home, "status", "--global").out).toBe("User level: 'skills-only' for Claude Code is up to date.\n");
   }, SLOW);
 
+  test("remove on a mirror in the home folder never deletes a file the User-Level Installation also owns", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    expect(cli(home, home, "workspace", ws).code).toBe(0);
+    const from = await tempDir("from");
+    expect(cli(home, from, "install", "skills-only", "--agents", "claude").code).toBe(0);
+    expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude").code).toBe(0);
+    expect(cli(home, home, "mirror", from, home).code).toBe(0);
+    expect(JSON.parse(await read(home, ".agents/apkit.json")).mirror).toBe(from);
+
+    const removed = cli(home, home, "remove", home);
+    expect([removed.code, removed.err]).toEqual([0, ""]);
+    expect(existsSync(join(home, ".agents", "apkit.json"))).toBe(false);
+    expect(await read(home, ".claude/skills/summarize/SKILL.md")).toBe(SKILL("summarize"));
+    expect(cli(home, home, "status", "--global").out).toBe("User level: 'skills-only' for Claude Code is up to date.\n");
+  }, SLOW);
+
+  test("a mirror over a Profile Installation whose manifest has no folder record records the folders it creates, and remove deletes them", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    expect(cli(home, home, "workspace", ws).code).toBe(0);
+    const from = await tempDir("from");
+    const folder = await tempDir("folder");
+    expect(cli(home, from, "install", "skills-only", "--agents", "claude").code).toBe(0);
+    expect(cli(home, folder, "install", "skills-only", "--agents", "codex").code).toBe(0);
+    // A manifest written before apkit kept the folder record.
+    const old = JSON.parse(await read(folder, ".agents/apkit.json")) as Record<string, unknown>;
+    delete old.folders;
+    await writeFile(join(folder, ".agents", "apkit.json"), JSON.stringify(old));
+
+    expect(cli(home, folder, "mirror", from, "--overwrite").code).toBe(0);
+    const recorded = JSON.parse(await read(folder, ".agents/apkit.json")) as { folders: string[] };
+    expect(recorded.folders).toEqual(expect.arrayContaining([".claude", ".claude/skills", ".claude/skills/summarize"]));
+    expect(recorded.folders).not.toContain(".agents");
+
+    const removed = cli(home, folder, "remove");
+    expect([removed.code, removed.err]).toEqual([0, ""]);
+    // The mirror's folders are gone; .agents was there before the mirror, so it stays.
+    expect(await exactTree(folder)).toEqual({ ".agents/": "" });
+  }, SLOW);
+
   /** Changes the Workspace's `engineering` Profile and runs `apkit update` in the named folder. */
   async function updateNamedFolder(home: string, repo: string, files: Record<string, string>): Promise<void> {
     const ws = JSON.parse(cli(home, repo, "workspace", "--json").out).workspace as string;
@@ -2829,6 +2913,38 @@ describe("several agents in linked worktrees", () => {
     expect(await tree(folder)).toEqual(mirrored);
     expect(await readFile(join(folder, ".agents", "apkit.json"))).toEqual(manifest);
     expect((await stat(join(folder, ".agents", "apkit.json"))).mtimeMs).toBe(written);
+  }, SLOW);
+
+  test("a mirror copies exact bytes: a copy that differs from the named folder's only in line endings is written, run again or the first time", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    expect(cli(home, home, "workspace", ws).code).toBe(0);
+    const from = await tempDir("from");
+    expect(cli(home, from, "install", "skills-only", "--agents", "claude").code).toBe(0);
+    const path = join(".claude", "skills", "summarize", "SKILL.md");
+    const lf = await readFile(join(from, path));
+    expect(lf.includes("\r\n")).toBe(false);
+    const crlf = Buffer.from(lf.toString("latin1").replace(/\n/g, "\r\n"), "latin1");
+
+    // Run again after the named folder's copy changed only its line endings.
+    const mirrored = await tempDir("mirrored");
+    expect(cli(home, mirrored, "mirror", from).code).toBe(0);
+    await writeFile(join(from, path), crlf);
+    const again = cli(home, mirrored, "mirror", from);
+    expect([again.code, again.err]).toEqual([0, ""]);
+    expect(again.out).toContain("(1 files written).");
+    expect(await readFile(join(mirrored, path))).toEqual(crlf);
+
+    // The first time, over a file of the user's with LF line endings: it is in the way.
+    const first = await tempDir("first");
+    await mkdir(join(first, ".claude", "skills", "summarize"), { recursive: true });
+    await writeFile(join(first, path), lf);
+    const blocked = cli(home, first, "mirror", from, "--yes");
+    expect(blocked.code).toBe(3);
+    expect(blocked.out).toContain(".claude/skills/summarize/SKILL.md exists and was not written by apkit.");
+    expect(await readFile(join(first, path))).toEqual(lf);
+    expect(cli(home, first, "mirror", from, "--overwrite").code).toBe(0);
+    expect(await readFile(join(first, path))).toEqual(crlf);
   }, SLOW);
 
   test("mirror into a folder that mirrors a different folder stops: exit 1, nothing changed, and the message names the folder it mirrors", async () => {

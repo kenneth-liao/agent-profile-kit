@@ -330,7 +330,10 @@ export async function plan(target: string, desired: Desired | null, recorded: Ma
       issues.push({ kind: "unowned", path, message: `${path} is a folder where apkit needs a file.` });
       continue;
     }
-    if (disk !== null && hash(disk) === want) {
+    // A mirror copies the bytes as they are (DEC-002): only the same bytes are the same file.
+    // Ownership and edits keep the line-ending-normalized hash.
+    const same = disk !== null && (options.mirror !== undefined ? Buffer.from(disk).equals(Buffer.from(file.bytes)) : hash(disk) === want);
+    if (same) {
       // Same bytes, but apkit did not write them: taking the file over is the user's decision,
       // because remove then deletes it. A file another install here owns is apkit's already.
       if (owned[path] === undefined && !shared.has(path)) {
@@ -431,7 +434,8 @@ export async function plan(target: string, desired: Desired | null, recorded: Ma
   const recording = project && (previous === null || previous.folders !== undefined);
   const manifestPath = options.manifestPath ?? abs(target, MANIFEST_PATH);
   let folders: string[] | undefined;
-  if (recording && desired !== null) {
+  // A mirror always keeps the record, also over a Profile Installation whose manifest has none.
+  if (desired !== null && (recording || (project && options.mirror !== undefined))) {
     const created = new Set(previous?.folders ?? []);
     for (const path of [...ops.flatMap((op) => (op.type === "write" ? [abs(target, op.path)] : [])), manifestPath]) {
       for (const dir of await missingFolders(path)) if (isInside(target, dir) && dir !== target) created.add(relative(target, dir).split(sep).join("/"));

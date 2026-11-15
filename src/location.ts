@@ -67,21 +67,32 @@ export interface Planned {
 }
 
 /**
- * Plans one location. The home folder can hold a project install and the global
+ * The files the other installation at this location also owns, which a plan here never deletes.
+ * The home folder can hold a project install (a Profile or Mirrored Installation) and the global
  * install at once: each keeps its own manifest and never deletes the other's files.
  */
-export async function planAt(target: Target, desired: Desired | null, previous: Manifest | MirrorManifest | null): Promise<Planned> {
+export async function sharedAt(target: Target): Promise<Set<string>> {
   const home = await realpath(homedir());
+  // A Mirrored Installation in the home folder owns its files as a Profile Installation does.
+  const other = target.global
+    ? ((await readMirror(home)) ?? (await readManifest(home)))
+    : target.folder === home
+      ? await previousAt(await globalTarget())
+      : null;
+  return new Set(Object.keys(other?.files ?? {}));
+}
+
+/** Plans one location, never deleting a file the other installation there also owns (`sharedAt`). */
+export async function planAt(target: Target, desired: Desired | null, previous: Manifest | MirrorManifest | null): Promise<Planned> {
+  const shared = await sharedAt(target);
   if (!target.global) {
-    const other = target.folder === home ? await previousAt(await globalTarget()) : null;
-    const files = await plan(target.folder, desired, previous, { shared: new Set(Object.keys(other?.files ?? {})) });
+    const files = await plan(target.folder, desired, previous, { shared });
     return { files, sections: null, issues: files.issues, paths: files.ops.map((op) => op.path) };
   }
-  // A Mirrored Installation in the home folder owns its files as a Profile Installation does.
-  const project = (await readMirror(home)) ?? (await readManifest(home));
+  const home = await realpath(homedir());
   const planned = await plan(home, desired, previous, {
     manifestPath: globalManifestPath(),
-    shared: new Set(Object.keys(project?.files ?? {})),
+    shared,
     pruneLimits: agentFoldersOutside(home),
   });
   const body = desired?.context ?? null;

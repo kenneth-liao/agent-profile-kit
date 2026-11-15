@@ -6,9 +6,9 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { relative, sep } from "node:path";
 import { recordInstall } from "./config.js";
 import { syncGitExclude } from "./gitexclude.js";
-import { findRepository } from "./gitindex.js";
-import { abs, changesManifest, execute, plan, readManifest, readMirror, unresolved, type Decisions, type Manifest, type MirrorManifest } from "./install.js";
-import { globalTarget, previousAt, trustNeeds, type Outcome, type TrustNeed } from "./location.js";
+import { findRepository, isTracked } from "./gitindex.js";
+import { abs, changesManifest, execute, MANIFEST_PATH, plan, readManifest, readMirror, unresolved, type Decisions, type Manifest, type MirrorManifest, type Plan } from "./install.js";
+import { sharedAt, trustNeeds, type Outcome, type TrustNeed } from "./location.js";
 import { display, nextCommand } from "./output.js";
 import type { Desired, DesiredFile } from "./render.js";
 
@@ -35,9 +35,8 @@ export async function mirror(from: string, folder: string, decisions: Decisions)
   // where Git does not track the file.
   const desired: Desired = { profile: source.profile, agents: source.agents, files, context: null, contextIds: [] };
   // In the home folder, a file the User-Level Installation also owns is never deleted.
-  const global = await globalTarget();
-  const shared = new Set(Object.keys((folder === global.folder ? await previousAt(global) : null)?.files ?? {}));
-  const planned = await plan(folder, desired, previous, { mirror: from, shared });
+  const planned = await plan(folder, desired, previous, { mirror: from, shared: await sharedAt({ folder }) });
+  await refuseTracked(folder, planned);
   const open = unresolved(planned, decisions);
   const base = { folder, mirror: from, profile: source.profile, agents: source.agents, instructions: planned.instructions };
   if (open.length > 0) return { outcome: { ...base, result: "needs-decision", issues: open }, trust: [] };
@@ -60,12 +59,28 @@ export async function mirror(from: string, folder: string, decisions: Decisions)
  * exclude file, and no Local Configuration.
  */
 export async function removeMirror(folder: string, record: MirrorManifest, decisions: Decisions): Promise<Outcome> {
-  const planned = await plan(folder, null, record);
+  const planned = await plan(folder, null, record, { shared: await sharedAt({ folder }) });
+  await refuseTracked(folder, planned);
   const open = unresolved(planned, decisions);
   const base = { folder, mirror: record.mirror, profile: record.profile, agents: record.agents, instructions: planned.instructions };
   if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
   await execute(planned);
   return { ...base, result: "removed", changed: planned.ops.map((op) => op.path) };
+}
+
+/**
+ * A Mirrored Installation never changes a file Git tracks (ISC-97), also with `--overwrite`: a run
+ * that would write or delete a tracked copy or change a tracked manifest stops before any write.
+ * A tracked instruction file is not in the plan: the plan leaves it as it is and names it.
+ */
+async function refuseTracked(folder: string, planned: Plan): Promise<void> {
+  const paths = [...planned.ops.map((op) => op.path), ...(changesManifest(planned) ? [MANIFEST_PATH] : [])];
+  const tracked: string[] = [];
+  for (const path of paths) if (await isTracked(folder, path)) tracked.push(path);
+  if (tracked.length === 0) return;
+  throw new Error(
+    `${display(folder)}: Git tracks ${tracked.length === 1 ? "a file" : "files"} this would change: ${tracked.sort().join(", ")}. A Mirrored Installation never changes a file Git tracks. Nothing was changed.`,
+  );
 }
 
 /**
