@@ -12,7 +12,7 @@ import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "
 import { changesManifest, readManifest, readManifestAt, readMirror, MANIFEST_PATH, type Decisions, type InstructionChange, type Manifest } from "./install.js";
 import { removeGitExclude } from "./gitexclude.js";
 import { apply, globalTarget, planAt, previousAt, renderFor, trustNeeds, type Outcome, type Planned, type Target, type TrustNeed } from "./location.js";
-import { mirror } from "./mirror.js";
+import { mirror, removeMirror } from "./mirror.js";
 import { migrate, oldStateFolder, type Migration, type MigrationRun, type OldGeneratedPart, type OldOutputOutcome, type WorkspaceRename } from "./migrate.js";
 import { AGENTS, isAgentId, type AgentId } from "./render.js";
 import { createdFiles, detectAgents, executeNotes, noteTargets, planNotes } from "./setup.js";
@@ -321,7 +321,7 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
         ? `${where}: ${what} is out of date.\n${(outcome.changed ?? []).map((path) => `  - ${path}`).join("\n")}\n${nextCommand(nextArgs(outcome, args, mode))}`
         : written(`Updated ${what} ${at} (${outcome.changed?.length ?? 0} changed).`);
     case "removed":
-      return written(`Removed ${what} ${from}.`);
+      return outcome.mirror === undefined ? written(`Removed ${what} ${from}.`) : `Removed the mirror of ${display(outcome.mirror)} (${what}) ${from}.`;
     case "unchanged":
       if (outcome.mirror !== undefined) return `${where}: ${what} is already the same as ${display(outcome.mirror)}. Nothing changed.`;
       return mode === "status" ? `${where}: ${what} is up to date.` : `${where}: ${what} is already up to date.`;
@@ -798,6 +798,12 @@ async function run(argv: readonly string[]): Promise<number> {
         return EXIT.ok;
       }
       const folder = await realpath(path);
+      const mirrored = await readMirror(folder);
+      if (mirrored !== null) {
+        const outcome = await removeMirror(folder, mirrored, decisions);
+        print(describe(outcome, "apply", args), outcome);
+        return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
+      }
       const previous = await readManifest(folder);
       if (previous === null) {
         await recordInstall(folder, false);

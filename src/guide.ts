@@ -195,11 +195,13 @@ same command again to bring it level with <from>: it replaces and deletes only
 copies it wrote, a copy changed in the folder is a Decision, and with nothing
 to change it says so. \`${COMMAND} status <folder>\` names the folder a mirror
 copies, its Profile, and its agents, without reading the Workspace. To clean
-up, delete the folder. Use \`${COMMAND} install\` when the folder should get
-the Workspace's current Profile and its Context. A mirror into a folder that
-holds an install, and \`install\` or \`update\` in a mirror, is a Decision:
-with --overwrite the folder ends as the one kind of installation the command
-makes. A mirror never changes an instruction file that Git tracks.
+up, delete the folder. To keep the folder, run \`${COMMAND} remove [folder]\`:
+it deletes only the mirror's copies and the empty folders it created. Use
+\`${COMMAND} install\` when the folder should get the Workspace's current
+Profile and its Context. A mirror into a folder that holds an install, and
+\`install\` or \`update\` in a mirror, is a Decision: with --overwrite the
+folder ends as the one kind of installation the command makes. A mirror never
+changes an instruction file that Git tracks.
 
 ## Decisions (exit code 3)
 
