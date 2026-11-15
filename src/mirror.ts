@@ -3,7 +3,7 @@
 // its installed files and the mirror record. No instruction file, no Repository Exclusion
 // Contribution, and no Local Configuration entry: deleting the folder is the whole cleanup.
 import { readFile, stat } from "node:fs/promises";
-import { abs, execute, plan, readManifest, readMirror, unresolved, type Decisions, type Manifest } from "./install.js";
+import { abs, execute, plan, readManifest, readMirror, unresolved, type Decisions, type Manifest, type MirrorManifest } from "./install.js";
 import { trustNeeds, type Outcome, type TrustNeed } from "./location.js";
 import { display } from "./output.js";
 import type { Desired, DesiredFile } from "./render.js";
@@ -33,6 +33,20 @@ export async function mirror(from: string, folder: string, decisions: Decisions)
   if (open.length > 0) return { outcome: { ...base, result: "needs-decision", issues: open }, trust: [] };
   await execute(planned);
   return { outcome: { ...base, result: "mirrored", changed: planned.ops.map((op) => op.path) }, trust: trustNeeds(desired) };
+}
+
+/**
+ * Removes the Mirrored Installation in `folder`: its copies, its Installation Manifest, and the
+ * folders it created when they end up empty. Like `mirror`, it touches no instruction file, no
+ * exclude file, and no Local Configuration.
+ */
+export async function removeMirror(folder: string, record: MirrorManifest, decisions: Decisions): Promise<Outcome> {
+  const planned = await plan(folder, null, record);
+  const open = unresolved(planned, decisions);
+  const base = { folder, mirror: record.mirror, profile: record.profile, agents: record.agents, instructions: planned.instructions };
+  if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
+  await execute(planned);
+  return { ...base, result: "removed", changed: planned.ops.map((op) => op.path) };
 }
 
 /**

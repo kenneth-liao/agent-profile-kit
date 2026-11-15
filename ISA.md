@@ -478,12 +478,12 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   its folder's `git status`.
   Probe: compare `git status --porcelain` in the linked worktree before and
   after the mirror; any new untracked entry fails. bash
-- [ ] **ISC-100:** **Anti:** A Mirrored Installation leaves no record outside
+- [x] **ISC-100:** **Anti:** A Mirrored Installation leaves no record outside
   its folder that outlives the folder.
   Probe: mirror into a linked worktree, run `git worktree remove --force`, and
   run no apkit command; the folder in `status --all`, in Local Configuration,
   or in the repository's exclude file fails. bash
-- [ ] **ISC-101:** **Anti:** `status --all` and `update --all` never list or
+- [x] **ISC-101:** **Anti:** `status --all` and `update --all` never list or
   change a Mirrored Installation.
   Probe: mirror, change the Workspace, then run both; the mirror listed, or
   any of its files changed, fails. bash
@@ -864,3 +864,5 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-97: `test/cli.test.ts` "a mirror changes no tracked file and writes no AGENTS.md or CLAUDE.md, also when the tracked AGENTS.md has an older Context Section" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-98: `test/cli.test.ts` "no path a mirror creates is a symbolic link" (also with `APKIT_CLI=dist/cli.js`)
 - ISC-99: `test/cli.test.ts` "a mirror adds no untracked entry to the linked worktree's git status" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-100: `test/cli.test.ts` "a mirror leaves no record outside its folder: after git worktree remove --force and no apkit command, the folder is in no status --all, Local Configuration, or exclude file" (also with `APKIT_CLI=dist/cli.js`)
+- ISC-101: `test/cli.test.ts` "status --all and update --all never list or change a mirror" (also with `APKIT_CLI=dist/cli.js`)
