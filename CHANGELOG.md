@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Added running `apkit mirror <from> [folder]` again in a folder that holds a mirror of `<from>`, which brings it level with `<from>`: it replaces and deletes only copies it wrote, a copy changed in the folder is a Decision settled by `--overwrite`, and a run with nothing to change says so (#805)
 - Changed `apkit status <folder>` on a Mirrored Installation to name the folder it mirrors, its Profile, and its agents, also with `--json` and with no Workspace selected, where it stopped with an error before (#807)
 - Added `apkit mirror <from> [folder]`, which gives a folder such as a worker's linked worktree real copies of the files `<from>` has installed, for every agent, with no Workspace needed, no instruction file written, and nothing new in `git status` (#802)
 - Added the refusals of `apkit mirror`, which stops before any write with the reason, also as one `--json` value, when `<from>` holds no Profile Installation or holds a Mirrored Installation (naming the folder to mirror instead), when the folder is in another Git repository or at another path from the worktree root (exit 1), or when the folder is `<from>` itself (exit 2) (#803)
