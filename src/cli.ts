@@ -580,7 +580,19 @@ async function main(argv: readonly string[]): Promise<number> {
   unmigrated = (await exists(state)) ? state : null;
   // Before the lock, so a rejected option or argument writes nothing.
   if (!args.flags.has("--help")) checkUsage(command, args);
+  if (command === "mirror" && !args.flags.has("--help")) await refuseSelfMirror(args);
   return locks(command, args) ? withLock(configHome(), () => run(argv)) : run(argv);
+}
+
+/** A mirror into the folder it mirrors is a usage error, refused before the lock so nothing is written. */
+async function refuseSelfMirror(args: Args): Promise<void> {
+  const named = args.positional[1];
+  if (named === undefined) return;
+  const from = await folderArg(named);
+  if (from !== (await folderArg(args.positional[2]))) return;
+  throw new UsageError(
+    `${display(from)} is the folder to mirror and the folder to fill. A mirror goes into another folder: \`${COMMAND} mirror <from> [folder]\`. Nothing was changed.`,
+  );
 }
 
 async function run(argv: readonly string[]): Promise<number> {
